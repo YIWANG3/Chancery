@@ -1,0 +1,10 @@
+#!/bin/bash
+# Stand-in for `gh`. The test project has no GitHub remote; `pr list --head <branch>` reports an open PR only for
+# branches listed in $CHANCERY_FAKE_LOG/prs (one per line), which a test writes to simulate the worker opening one.
+branch=""
+for ((i = 1; i <= $#; i++)); do [ "${!i}" = "--head" ] && j=$((i + 1)) && branch="${!j}"; done
+if [ -n "$branch" ] && [ -f "$CHANCERY_FAKE_LOG/prs" ] && grep -qx -- "$branch" "$CHANCERY_FAKE_LOG/prs"; then
+  echo "[{\"number\":42,\"url\":\"https://github.com/example/demo/pull/42\"}]"
+else
+  echo '[]'
+fi

@@ -1,0 +1,56 @@
+#!/bin/bash
+# A stand-in for the `claude` CLI used by the e2e tests. Records every call under $CHANCERY_FAKE_LOG and answers
+# like a worker would: the first round on a ticket asks a question, a round whose prompt carries the human's
+# answer ("## 上一轮") reports done. The clerk call (--permission-mode plan) gets a structured draft back.
+set -e
+log="${CHANCERY_FAKE_LOG:?CHANCERY_FAKE_LOG not set}"
+mkdir -p "$log"
+count=$(ls "$log" | grep -c '^claude-.*\.args$' || true)
+n=$((count + 1))
+printf '%s\n' "$@" > "$log/claude-$n.args"
+
+case "$1" in
+  agents) echo '[]'; exit 0 ;;
+  --version) echo 'fake claude'; exit 0 ;;
+esac
+
+prompt="${@: -1}"
+printf '%s' "$prompt" > "$log/claude-$n.prompt"
+
+mode=worker
+for a in "$@"; do [ "$a" = "plan" ] && mode=clerk; done
+
+export FAKE_MODE="$mode" FAKE_N="$n" FAKE_PROMPT="$prompt"
+python3 - <<'PY'
+import json, os
+mode, n, prompt = os.environ["FAKE_MODE"], os.environ["FAKE_N"], os.environ["FAKE_PROMPT"]
+if mode == "clerk" and "分类" in prompt:
+    # triage: look only at the ticket itself (title line + body), not the instructions above it
+    ticket = prompt.split("工单 #")[-1]
+    if "？" in ticket and "怎么" in ticket:
+        result = json.dumps({"kind": "question", "priority": 3, "status": "done", "area": [], "answer": "看 README 的「跑起来」一节。", "reason": "是个问题"}, ensure_ascii=False)
+    elif "设计" in ticket:
+        result = json.dumps({"kind": "feature", "priority": 2, "status": "needs-spec", "area": ["renderer"], "answer": None, "reason": "要先定交互"}, ensure_ascii=False)
+    else:
+        result = json.dumps({"kind": "bug", "priority": 2, "status": "ready", "area": ["core"], "answer": None, "reason": "明确的 bug"}, ensure_ascii=False)
+elif mode == "clerk":
+    draft = {"project": "demo-project", "title": "换掉首页截图", "body": "## 背景\n截图是旧界面。\n\n## 要做什么\n换成新界面的截图。\n\n## 验收标准\n- README 里的图是新界面\n\n## 范围外\n无", "kind": "chore", "priority": 3, "needs_spec": False, "reason": "明确的小改动"}
+    result = json.dumps(draft, ensure_ascii=False)
+elif "你是审计" in prompt:
+    # first audit round fails, the second passes, so the fix loop is exercised
+    audits = len([f for f in os.listdir(os.environ["CHANCERY_FAKE_LOG"]) if f.endswith(".audit")])
+    open(os.path.join(os.environ["CHANCERY_FAKE_LOG"], f"claude-{n}.audit"), "w").write("")
+    result = "跑了快速检查，是绿的。\n\n发现：README 新增那一行末尾少了换行。\n\nAUDIT: FAIL" if audits == 0 else "跑了快速检查，是绿的；上一轮的问题已修。\n\nAUDIT: PASS"
+elif "## 上一轮" in prompt:
+    result = "做完了。按你的回答用了 B 方案，改动已提交到当前分支；这个仓库没有远程，所以没有开 PR。"
+elif "直接做完" in prompt:
+    # a worker that finishes with a PR: tell the fake gh which branch has one
+    import subprocess
+    branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip()
+    with open(os.path.join(os.environ["CHANCERY_FAKE_LOG"], "prs"), "a") as f:
+        f.write(branch + "\n")
+    result = "做完了，已提交并开了 PR #42。"
+else:
+    result = "复现了问题，是解码时返回了空缓冲。\n\n需要你决定：用 A 方案（退回旧解码器）还是 B 方案（只对 10-bit 走慢路径）？"
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": result, "session_id": f"fake-session-{n}"}, ensure_ascii=False))
+PY

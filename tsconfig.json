@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@core/*": [
+        "./core/*"
+      ]
+    }
+  },
+  "include": [
+    "core",
+    "main",
+    "preload",
+    "renderer",
+    "scripts",
+    "vite.config.ts",
+    "tests",
+    "playwright.config.ts"
+  ]
+}

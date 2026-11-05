@@ -1,0 +1,14 @@
+export { createDb, migrate, type Db } from "./db.js";
+export { createRepo, type Repo } from "./repo.js";
+export { createDaemon, type Daemon, type DaemonStatus, type Triage } from "./daemon.js";
+export { createClaudeDesktopExecutor, desktopProjectName, type ClaudeLaunchMode } from "./executors/claude-desktop.js";
+export { listDesktopSessions, findDesktopSessionByCli, desktopSessionsByCli, sessionOpenFor, type SessionOpen } from "./claude/desktopIndex.js";
+export { createCodexExecutor, type CodexLaunchMode } from "./executors/codex.js";
+export type { Executor } from "./executors/types.js";
+export { readProjectFromDir, parseGithubRepo } from "./project.js";
+export { discoverProjects, type DiscoveredProject } from "./discover.js";
+export { listClaudeAgents } from "./claude/sessions.js";
+export * from "./types.js";
+export { createChanceryMcpServer, type McpDeps } from "./mcp.js";
+export { draftTicket, triageTicket, type TicketDraft, type TriageResult, type ClerkOptions } from "./clerk.js";
+export { auditPrompt, executePrompt, parseAuditVerdict } from "./prompts.js";

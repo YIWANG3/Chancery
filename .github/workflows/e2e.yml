@@ -1,0 +1,58 @@
+name: e2e
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # No tokens: fake claude / codex / gh, embedded Postgres, the real Electron app.
+  fake-cli:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-fake-results
+          path: test-results
+
+  # Real claude CLI in print mode, served by DeepSeek's Anthropic-compatible endpoint; DeepSeek as the clerk.
+  # Needs the DEEPSEEK_API_KEY secret; skipped on forks and pull requests from them.
+  real-cli:
+    runs-on: macos-14
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: fake-cli
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_BASE_URL: https://api.deepseek.com/anthropic
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_MODEL: deepseek-chat
+      ANTHROPIC_SMALL_FAST_MODEL: deepseek-chat
+      CHANCERY_E2E_REAL: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: |
+          if [ -z "$DEEPSEEK_API_KEY" ]; then echo "DEEPSEEK_API_KEY not set; skipping"; exit 0; fi
+          npm run build
+          npx playwright test tests/e2e/real.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-real-results
+          path: test-results
