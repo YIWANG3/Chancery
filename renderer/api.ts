@@ -4,6 +4,7 @@ export type { SessionOpen };
 import type { DaemonStatus } from "@core/daemon";
 import type { DiscoveredProject } from "@core/discover";
 import type { TicketDraft } from "@core/clerk";
+import type { Overview } from "@core/overview";
 export type { TicketDraft };
 export type { DiscoveredProject };
 
@@ -12,6 +13,7 @@ declare global {
     chancery: {
       invoke: (channel: string, payload?: unknown) => Promise<unknown>;
       onChanged: (cb: () => void) => () => void;
+      onNotices: (cb: () => void) => () => void;
     };
   }
 }
@@ -53,7 +55,17 @@ export interface AppSettings {
   auditEnabled: boolean;
   workerLowPriority: boolean;
   launchAtLogin: boolean;
+  sessionAlerts: boolean;
+  floatOnStart: boolean;
+  floatPosition: { x: number; y: number } | null;
   pg: { embedded: boolean; connectionString: string };
+}
+
+export interface PanelNotice {
+  id: number;
+  title: string;
+  subtitle: string;
+  body: string;
 }
 
 export interface AxStatus {
@@ -96,6 +108,8 @@ export const api = {
     pause: (paused: boolean) => call<DaemonStatus>("daemon:pause", { paused }),
   },
   agents: { claude: () => call<ClaudeAgent[]>("agents:claude") },
+  /** Every Claude Desktop and Codex session on this machine, by project. Read from the two apps' own state. */
+  sessions: { overview: () => call<Overview>("sessions:overview") },
   ax: { status: (prompt?: boolean) => call<AxStatus>("ax:status", { prompt }) },
   settings: {
     get: () => call<AppSettings>("settings:get"),
@@ -105,6 +119,26 @@ export const api = {
     open: (url: string) => call<void>("shell:open", { url }),
     reveal: (path: string) => call<void>("shell:reveal", { path }),
   },
-  session: { open: (open: SessionOpen) => call<void>("session:open", { open }) },
+  session: {
+    open: (open: SessionOpen) => call<void>("session:open", { open }),
+    /** Sends one message into the conversation through its own app. Rejects with a sentence for the person. */
+    reply: (target: { app: "claude" | "codex"; id: string; title: string }, text: string) => call<void>("session:reply", { target, text }),
+  },
+  main: { show: () => call<void>("main:show") },
+  /** The floating session window. */
+  float: {
+    toggle: () => call<boolean>("float:toggle"),
+    hide: () => call<void>("float:hide"),
+    visible: () => call<boolean>("float:visible"),
+    /** The page's own size after a render; the window takes it. */
+    fit: (size: { width: number; height: number }) => call<void>("float:fit", size),
+  },
+  /** The notice panel: what it is showing, and what a click on one of them does. */
+  notices: {
+    list: () => call<PanelNotice[]>("notices:list"),
+    open: (id: number) => call<void>("notices:open", { id }),
+    dismiss: (id: number) => call<void>("notices:dismiss", { id }),
+    onChange: (cb: () => void) => window.chancery.onNotices(cb),
+  },
   onChanged: (cb: () => void) => window.chancery.onChanged(cb),
 };

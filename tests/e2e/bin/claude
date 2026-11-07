@@ -3,16 +3,18 @@
 # like a worker would: the first round on a ticket asks a question, a round whose prompt carries the human's
 # answer ("## 上一轮") reports done. The clerk call (--permission-mode plan) gets a structured draft back.
 set -e
+# Status queries are not recorded: the session watch asks for `agents` every few seconds, and numbering those would
+# make the number of a worker's call depend on timing.
+case "$1" in
+  agents) echo '[]'; exit 0 ;;
+  --version) echo 'fake claude'; exit 0 ;;
+esac
+
 log="${CHANCERY_FAKE_LOG:?CHANCERY_FAKE_LOG not set}"
 mkdir -p "$log"
 count=$(ls "$log" | grep -c '^claude-.*\.args$' || true)
 n=$((count + 1))
 printf '%s\n' "$@" > "$log/claude-$n.args"
-
-case "$1" in
-  agents) echo '[]'; exit 0 ;;
-  --version) echo 'fake claude'; exit 0 ;;
-esac
 
 prompt="${@: -1}"
 printf '%s' "$prompt" > "$log/claude-$n.prompt"

@@ -79,10 +79,13 @@ export async function desktopSessionsByCli(home = homedir()): Promise<Map<string
   return map;
 }
 
-/** Where a worker's conversation can be picked up again: in Claude Desktop when its index knows the session, else in a
- *  terminal with the CLI's own resume, in the worktree the worker used. Null while a worker is still running headless
- *  (its session id is not known yet) and for sessions with no worktree. */
-export type SessionOpen = { kind: "desktop"; desktopSessionId: string } | { kind: "terminal"; bin: "claude" | "codex"; sessionId: string; cwd: string };
+/** Where a conversation can be picked up again: in Claude Desktop when its index knows the session, in the Codex app
+ *  for one of its threads, else in a terminal with the CLI's own resume, in the worktree the worker used. Null while a
+ *  worker is still running headless (its session id is not known yet) and for sessions with no worktree. */
+export type SessionOpen =
+  | { kind: "desktop"; desktopSessionId: string }
+  | { kind: "codex-app"; threadId: string }
+  | { kind: "terminal"; bin: "claude" | "codex"; sessionId: string; cwd: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

@@ -89,7 +89,7 @@ export function Tickets() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-3 px-8 pb-4">
-        <select value={filter.projectId} onChange={(e) => set({ projectId: e.target.value })} className="h-9 py-0">
+        <select value={filter.projectId} onChange={(e) => set({ projectId: e.target.value })} className="h-9 py-0 shrink-0">
           <option value="">全部项目</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
@@ -113,7 +113,7 @@ export function Tickets() {
             ),
           }))}
         />
-        <input value={filter.q} onChange={(e) => set({ q: e.target.value })} placeholder="搜标题、正文、#号" className="h-9 py-0 w-[260px]" />
+        <input value={filter.q} onChange={(e) => set({ q: e.target.value })} placeholder="搜标题、正文、#号" className="h-9 py-0 flex-1 min-w-[120px] max-w-[260px]" />
         <Segmented
           className="ml-auto"
           value={filter.view}
@@ -197,14 +197,14 @@ function BoardView({ tickets, byId, showProject, onOpen }: { tickets: TicketRow[
       {COLUMNS.map((statuses, i) => {
         const items = tickets.filter((t) => statuses.includes(t.status));
         return (
-          <div key={i} className="w-[280px] shrink-0 flex flex-col bg-sidebar rounded-lg">
-            <div className="px-6 h-11 flex items-center text-[13px] text-muted">
+          <div key={i} className="w-[280px] shrink-0 flex flex-col bg-app rounded-lg">
+            <div className="px-4 h-11 flex items-center text-[13px] text-muted">
               {COLUMN_TITLE[i]}
               <span className="ml-auto tabular-nums">{items.length}</span>
             </div>
-            <div className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-2.5">
+            <div className="flex-1 overflow-y-auto px-2 pb-2 flex flex-col gap-2">
               {items.map((t) => (
-                <Clickable key={t.id} onClick={() => onOpen(t.id)} className="text-left bg-panel hover:bg-panel2 shadow-sm rounded-md px-3 py-3 flex flex-col gap-2">
+                <Clickable key={t.id} onClick={() => onOpen(t.id)} className="text-left bg-panel2 hover:bg-hover transition-colors rounded-md px-3 py-3 flex flex-col gap-2">
                   <div className="flex items-center gap-2 text-[12.5px] text-muted tabular-nums">
                     <span>#{t.seq}</span>
                     {showProject && <span className="truncate">{byId.get(t.project_id)?.name}</span>}
@@ -259,8 +259,8 @@ function NewTicket({ projects, defaultProject, onClose }: { projects: Project[];
     onClose();
   };
   return (
-    <div className="fixed inset-0 z-modal bg-black/40 flex items-start justify-center pt-[12vh]" onClick={onClose} onKeyDown={(e) => e.key === "Escape" && onClose()}>
-      <div role="dialog" aria-label="新工单" className="w-[620px] bg-panel rounded-xl shadow-2xl p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-modal bg-overlay flex items-start justify-center pt-[12vh]" onClick={onClose} onKeyDown={(e) => e.key === "Escape" && onClose()}>
+      <div role="dialog" aria-label="新工单" className="w-[620px] bg-panel border border-line rounded-xl shadow-2xl p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
         <input autoFocus aria-label="标题" placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit()} className="text-[15px]" />
         <textarea aria-label="正文" placeholder="正文，可空" rows={6} value={body} onChange={(e) => setBody(e.target.value)} />
         <div className="flex gap-2.5">

@@ -35,7 +35,53 @@ export function installMock(): void {
       ],
     };
   };
+  const overview = () => {
+    const at = (minutesAgo: number) => Date.now() - minutesAgo * 60_000;
+    const af = "/Users/me/workspace/AfterFrame";
+    const ch = "/Users/me/workspace/chancery-claude";
+    const notes = "/Users/me/notes";
+    const s = (app: "claude" | "codex", id: string, projectKey: string, state: string, title: string, minutesAgo: number, detail = "", basis = "fixture") => ({
+      app,
+      id,
+      title,
+      state,
+      detail,
+      basis,
+      at: at(minutesAgo),
+      cwd: projectKey,
+      projectKey,
+      turn: state === "running" ? "" : "fixture",
+      open: app === "claude" ? { kind: "desktop", desktopSessionId: id } : { kind: "codex-app", threadId: id },
+    });
+    const sessions = [
+      s("claude", "local_1", af, "needs-you", "导入时 HEIC 缩略图偶尔是黑的", 12, "要退回到 ImageIO 解码，还是只对 10-bit 走慢路径？", "postTurnSummary.blocked"),
+      s("codex", "t1", af, "error", "给合集页生成封面图", 35, "You've hit your usage limit. Try again at 6:30 PM.", "thread_turns.failed"),
+      s("claude", "local_2", ch, "needs-you", "会话总览的状态判定", 50, "Codex 的「等我」读不出来：接受只做到完成未读，还是用辅助功能读侧栏？", "postTurnSummary.blocked"),
+      s("claude", "local_3", af, "review", "Format 筛选加上视频家族", 80, "PR #201 已开，CI 两项检查运行中", "postTurnSummary.review_ready"),
+      s("codex", "t2", af, "unread", "调研 HEIC 解码的几种路径", 95, "", "thread_turns.completed + unread"),
+      s("codex", "t3", notes, "unread", "AI 在 CNC 加工中心的应用", 300, "", "thread_turns.completed + unread"),
+      s("claude", "local_4", af, "running", "灯箱里的星级和 Lightroom 不同步", 1, "", "claude agents: busy"),
+      s("codex", "t4", ch, "running", "对照 LobeHub 的任务模型", 3, "", "thread_turns.inProgress"),
+      s("codex", "t5", af, "interrupted", "批量重命名导出预设", 600, "", "thread_turns.interrupted"),
+      s("claude", "local_5", ch, "done", "退出卡住的问题", 130, "退出卡死已修，SIGTERM 1 秒干净退出，测试全过", "postTurnSummary.completed"),
+      s("claude", "local_6", notes, "done", "PDF 旅游合集准备", 900, "小红书链接已加入 PDF 介绍页并重新生成，19 页", "postTurnSummary.completed"),
+      s("codex", "t6", af, "done", "只回复 ok", 2600, "", "thread_turns.completed"),
+    ];
+    const zero = { "needs-you": 0, error: 0, stuck: 0, review: 0, unread: 0, running: 0, interrupted: 0, done: 0 };
+    const group = (key: string, name: string) => {
+      const mine = sessions.filter((x) => x.projectKey === key);
+      const counts = { ...zero } as Record<string, number>;
+      for (const x of mine) counts[x.state] = (counts[x.state] ?? 0) + 1;
+      return { key, name, dir: key, apps: [...new Set(mine.map((x) => x.app))], sessions: mine.length, counts, lastAt: Math.max(...mine.map((x) => x.at)) };
+    };
+    return { projects: [group(af, "AfterFrame"), group(ch, "chancery-claude"), group(notes, "notes")], sessions, readAt: Date.now(), errors: [] };
+  };
   const routes: Record<string, (p: never) => unknown> = {
+    "sessions:overview": overview,
+    "notices:list": () => [
+      { id: 2, title: "等你 · 导入时 HEIC 缩略图偶尔是黑的", subtitle: "Claude · AfterFrame", body: "要退回到 ImageIO 解码，还是只对 10-bit 走慢路径？" },
+      { id: 1, title: "跑完了 · 调研 HEIC 解码的几种路径", subtitle: "Codex · AfterFrame", body: "这一轮结束了。" },
+    ],
     "projects:list": () => projects,
     "projects:discover": () => [{ dir: "/Users/me/workspace/vibepin", sources: ["claude-desktop", "codex"], sessions: 7, lastActive: now }],
     "tickets:list": (f: { status?: string[] } | undefined) => (f?.status ? tickets.filter((x) => f.status!.includes(x.status)) : tickets).map((x, i) => ({ ...x, session_open: i === 0 ? { kind: "desktop", desktopSessionId: "local_mock" } : i === 1 ? { kind: "terminal", bin: "claude", sessionId: "abc", cwd: "/tmp" } : null })),
@@ -43,7 +89,7 @@ export function installMock(): void {
     "daemon:status": () => ({ running: true, paused: false, lastTickAt: now, lastError: null }),
     "agents:claude": () => [{ pid: 1, cwd: "/Users/me/workspace/AfterFrame", kind: "desktop", startedAt: 0, sessionId: "s1", name: "heic 缩略图", status: "busy" }],
     "ax:status": () => ({ available: true, trusted: true, probe: { ok: true, projects: ["AfterFrame"], composer: { usage: "Weekly 45%" } } }),
-    "settings:get": () => ({ theme: "system", pgPort: 54329, pgConnectionString: "", worktreeRoot: "~/.platform/worktrees", claudeBin: "claude", permissionMode: "auto", claudeLaunchMode: "desktop", defaultModel: "", codexBin: "codex", codexModel: "", codexSandbox: "workspace-write", codexLaunchMode: "exec", quickCaptureShortcut: "CommandOrControl+Shift+Space", daemonIntervalMs: 30000, mcpPort: 41710, clerkBackend: "auto", deepseekApiKey: "", deepseekModel: "deepseek-chat", autoTriage: true, auditEnabled: true, workerLowPriority: true, launchAtLogin: false, pg: { embedded: true, connectionString: "postgres://chancery@127.0.0.1:54329/chancery" } }),
+    "settings:get": () => ({ theme: "system", pgPort: 54329, pgConnectionString: "", worktreeRoot: "~/.platform/worktrees", claudeBin: "claude", permissionMode: "auto", claudeLaunchMode: "desktop", defaultModel: "", codexBin: "codex", codexModel: "", codexSandbox: "workspace-write", codexLaunchMode: "exec", quickCaptureShortcut: "CommandOrControl+Shift+Space", daemonIntervalMs: 30000, mcpPort: 41710, clerkBackend: "auto", deepseekApiKey: "", deepseekModel: "deepseek-chat", autoTriage: true, auditEnabled: true, workerLowPriority: true, launchAtLogin: false, sessionAlerts: true, floatOnStart: false, floatPosition: null, pg: { embedded: true, connectionString: "postgres://chancery@127.0.0.1:54329/chancery" } }),
   };
   window.chancery = {
     invoke: async (channel, payload) => {
@@ -52,5 +98,6 @@ export function installMock(): void {
       return fn(payload as never);
     },
     onChanged: () => () => {},
+    onNotices: () => () => {},
   };
 }

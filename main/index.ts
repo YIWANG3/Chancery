@@ -2,8 +2,12 @@ import { app, BrowserWindow, globalShortcut, Menu, nativeImage, nativeTheme, pow
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
-import { createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, migrate, triageTicket, type Daemon, type Db, type Triage } from "../core/index.js";
+import { createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, heldUpSessions, migrate, triageTicket, type Daemon, type Db, type SessionRow, type Triage } from "../core/index.js";
 import { broadcast, registerIpc } from "./ipc.js";
+import { createFloatControl, type FloatControl } from "./floatWindow.js";
+import { createNotifier } from "./notify.js";
+import { openSession } from "./openSession.js";
+import { startSessionWatch, type SessionWatch } from "./sessionWatch.js";
 import { startPg, type PgHandle } from "./pg.js";
 import { startMcpHttp } from "./mcpHttp.js";
 import type { Server } from "node:http";
@@ -41,7 +45,7 @@ const log = (msg: string) => {
 };
 
 const settingsPath = join(userData, "settings.json");
-const axctlPath = join(app.getAppPath(), "native", "bin", "axctl");
+const axctlPath = process.env.CHANCERY_AXCTL || join(app.getAppPath(), "native", "bin", "axctl");
 let settings: Settings = loadSettings(settingsPath);
 let pg: PgHandle | null = null;
 let db: Db | null = null;
@@ -52,6 +56,11 @@ let captureWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let mcpHttp: Server | null = null;
 let awakeBlocker: number | null = null;
+let sessionWatch: SessionWatch | null = null;
+let floatControl: FloatControl | null = null;
+const OFFSCREEN = process.env.CHANCERY_OFFSCREEN === "1";
+/** Sessions stopped until the person does something; drives the menu bar item and the dock badge. */
+let heldUp: SessionRow[] = [];
 
 /** Keeps the machine from idle-sleeping while a worker or auditor is running; released as soon as none is. */
 function keepAwake(active: boolean) {
@@ -80,7 +89,7 @@ function clerkFor(): Triage | null {
 }
 
 // Window background matches the renderer's app token in each theme, so there is never a white (or black) flash.
-const BG = { light: "#ffffff", dark: "#111214" } as const;
+const BG = { light: "#f7f7f7", dark: "#000000" } as const;
 const bg = () => (nativeTheme.shouldUseDarkColors ? BG.dark : BG.light);
 nativeTheme.themeSource = settings.theme;
 nativeTheme.on("updated", () => {
@@ -111,7 +120,7 @@ function createMainWindow(): BrowserWindow {
   win.on("closed", () => {
     mainWindow = null;
   });
-  void loadRoute(win, process.env.CHANCERY_ROUTE ?? "/tickets");
+  void loadRoute(win, process.env.CHANCERY_ROUTE ?? "/sessions");
   // Dev aid: CHANCERY_SCREENSHOT=<png path> captures the window once it has rendered, then quits.
   const shot = process.env.CHANCERY_SCREENSHOT;
   if (shot) {
@@ -174,16 +183,116 @@ function toggleCapture() {
 function setupTray() {
   // Text-only menu bar item until there is a real icon asset.
   tray = new Tray(nativeImage.createEmpty());
-  tray.setTitle("Ch");
   tray.setToolTip("Chancery");
+  refreshAttention();
+}
+
+const TRAY_SESSIONS = 8;
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+function jumpTo(s: SessionRow) {
+  if (!s.open) return showMain();
+  void openSession(s.open, settings, log).catch((err: unknown) => log(`open session ${s.app}:${s.id}: ${String(err)}`));
+}
+
+/** Puts the number of sessions waiting on the person on the menu bar item and the dock icon, and lists them in the
+ *  menu bar item's menu, each one a jump to its conversation. */
+function refreshAttention() {
+  const n = heldUp.length;
+  app.dock?.setBadge(n ? String(n) : "");
+  if (!tray) return;
+  tray.setTitle(n ? `Ch ${n}` : "Ch");
+  const waiting: Electron.MenuItemConstructorOptions[] = heldUp.slice(0, TRAY_SESSIONS).map((s) => ({
+    label: `${clip(s.title || "（无标题）", 36)} — ${s.app === "claude" ? "Claude" : "Codex"}`,
+    toolTip: s.detail || undefined,
+    click: () => jumpTo(s),
+  }));
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "打开", click: showMain },
+      { label: floatControl?.isVisible() ? "收起浮窗" : "浮窗", click: () => floatControl?.toggle() },
       { label: "记一条", click: toggleCapture },
       { type: "separator" },
+      ...(n ? [{ label: `${n} 个会话在等你`, enabled: false }, ...waiting, ...(n > TRAY_SESSIONS ? [{ label: `还有 ${n - TRAY_SESSIONS} 个，在窗口里看`, click: showMain }] : []), { type: "separator" as const }] : []),
       { label: "退出", click: () => app.quit() },
     ]),
   );
+}
+
+/** A window that floats above everything on every desktop and never comes forward on its own. */
+function floating(route: string, opts: { width: number; height: number; focusable: boolean }): BrowserWindow {
+  const win = new BrowserWindow({
+    width: opts.width,
+    height: opts.height,
+    type: "panel",
+    frame: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: opts.focusable,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: true,
+    backgroundColor: bg(),
+    show: false,
+    webPreferences: { preload: join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true },
+  });
+  win.setAlwaysOnTop(true, "floating");
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  void loadRoute(win, route);
+  return win;
+}
+
+/** The notice panel: for when system notifications are refused. It never takes focus. */
+const createNoticePanel = () => floating("/notices", { width: 360, height: 108, focusable: false });
+
+/** The floating session window. It can take focus, since a reply is typed into it, but never comes forward on its own. */
+function setupFloat() {
+  floatControl = createFloatControl({
+    createWindow: () => floating("/float", { width: 240, height: 40, focusable: true }),
+    position: () => settings.floatPosition,
+    savePosition: (p) => {
+      settings = { ...settings, floatPosition: p };
+      saveSettings(settingsPath, settings);
+    },
+    offscreen: OFFSCREEN,
+    onVisibility: () => {
+      refreshAttention();
+      broadcast("chancery:changed");
+    },
+  });
+  if (settings.floatOnStart) floatControl.show();
+}
+
+/** Independent of the database: sessions are read from the two apps' own files, so this runs even when boot fails. */
+function startWatchingSessions() {
+  const notifier = createNotifier({
+    channel: process.env.CHANCERY_NOTICES === "panel" ? "panel" : "auto",
+    offscreen: OFFSCREEN,
+    keepClearOf: () => floatControl?.bounds() ?? null,
+    createPanel: createNoticePanel,
+    onPanelChange: () => broadcast("chancery:notices"),
+    log,
+  });
+  sessionWatch = startSessionWatch({
+    claudeBin: () => settings.claudeBin,
+    home: process.env.CHANCERY_SESSIONS_HOME || undefined,
+    alertsEnabled: () => settings.sessionAlerts,
+    notify: (notice) => notifier.notify(notice),
+    onChange: (overview) => {
+      heldUp = heldUpSessions(overview);
+      refreshAttention();
+      broadcast("chancery:changed");
+    },
+    onOpen: (alert) => jumpTo(alert.session),
+    onOpenList: () => {
+      showMain();
+      if (mainWindow) void loadRoute(mainWindow, "/sessions");
+    },
+    log,
+  });
 }
 
 async function boot() {
@@ -243,6 +352,11 @@ async function boot() {
     worktreeRoot: () => settings.worktreeRoot,
     pgInfo: () => ({ embedded: pg?.embedded ?? false, connectionString: pg?.connectionString.replace(/:[^:@/]+@/, ":***@") ?? "" }),
     axctlPath,
+    log,
+    showMain,
+    sessions: () => sessionWatch?.latest() ?? Promise.reject(new Error("session watch is not running")),
+    refreshSessions: () => void sessionWatch?.refresh().catch(() => {}),
+    sessionsHome: process.env.CHANCERY_SESSIONS_HOME || undefined,
   });
   await daemon.start();
   log("daemon started");
@@ -255,6 +369,8 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", showMain);
   app.whenReady().then(async () => {
+    startWatchingSessions();
+    setupFloat();
     try {
       await boot();
     } catch (err) {
@@ -283,6 +399,7 @@ if (!app.requestSingleInstanceLock()) {
     // Stay resident: the daemon keeps working from the tray.
   });
   app.on("before-quit", () => {
+    sessionWatch?.stop();
     globalShortcut.unregisterAll();
   });
   app.on("will-quit", (ev) => {

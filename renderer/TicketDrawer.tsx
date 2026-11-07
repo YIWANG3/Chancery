@@ -46,8 +46,8 @@ export function TicketDrawer({ id, onClose }: { id: string; onClose: () => void 
   const lastReport = [...events].reverse().find((e) => e.kind === "report" || e.kind === "question");
   const askedSomething = !!lastQuestion && lastQuestion.at >= (lastReport?.at ?? "");
   return (
-    <div className="fixed inset-0 z-drawer flex justify-end bg-black/30" onClick={onClose}>
-      <div role="dialog" aria-label={t.title} className="w-[720px] h-full bg-panel flex flex-col shadow-2xl ring-1 ring-line/70" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-drawer flex justify-end bg-overlay" onClick={onClose}>
+      <div role="dialog" aria-label={t.title} className="w-[720px] h-full bg-panel flex flex-col shadow-2xl border-l border-line" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-4 px-8 pt-7 pb-3">
           <div className="min-w-0 flex-1 flex flex-col gap-2">
             <div className="text-[13px] text-muted flex gap-3.5 items-center tabular-nums">
@@ -97,7 +97,7 @@ export function TicketDrawer({ id, onClose }: { id: string; onClose: () => void 
             <div className="flex flex-col gap-3 rounded-lg bg-warn/10 p-5">
               <SectionLabel className="min-h-0 text-warn">它在等你</SectionLabel>
               <div className="text-[14px] leading-relaxed whitespace-pre-wrap text-pretty">{String(lastQuestion!.payload.question || lastQuestion!.payload.summary || "")}</div>
-              <textarea rows={3} placeholder="回一句，回完它重新派" value={answer} onChange={(e) => setAnswer(e.target.value)} className="bg-panel" />
+              <textarea rows={3} placeholder="回一句，回完它重新派" value={answer} onChange={(e) => setAnswer(e.target.value)} />
               <div>
                 <Button
                   kind="primary"

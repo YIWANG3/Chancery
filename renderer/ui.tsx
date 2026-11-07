@@ -60,7 +60,7 @@ export function Button({ children, onClick, kind = "default", size = "md", disab
   }[kind];
   const dims = size === "sm" ? "h-8 px-3 gap-1.5 text-[13px]" : "h-9 px-4 gap-2 text-[14px]";
   return (
-    <button onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel} className={cn("no-drag inline-flex items-center justify-center rounded-md font-medium disabled:opacity-40 disabled:pointer-events-none", dims, tone, className)}>
+    <button onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel} className={cn("no-drag inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none", dims, tone, className)}>
       {children}
     </button>
   );
@@ -83,7 +83,7 @@ export function Empty({ children, action }: { children: ReactNode; action?: Reac
 /** Exclusive choices drawn as one fill with the chosen item lifted; no borders between items. */
 export function Segmented<T extends string>({ value, options, onChange, className }: { value: T; options: Array<{ value: T; label: ReactNode; title?: string; ariaLabel?: string }>; onChange: (v: T) => void; className?: string }) {
   return (
-    <div role="radiogroup" className={cn("inline-flex items-center h-9 p-1 rounded-md bg-panel2 gap-0.5", className)}>
+    <div role="radiogroup" className={cn("inline-flex shrink-0 items-center h-9 p-1 rounded-md bg-panel2 gap-0.5", className)}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -92,7 +92,7 @@ export function Segmented<T extends string>({ value, options, onChange, classNam
           aria-label={o.ariaLabel}
           title={o.title}
           onClick={() => onChange(o.value)}
-          className={cn("no-drag h-7 px-3 rounded-[5px] text-[13px] inline-flex items-center gap-2", value === o.value ? "bg-panel text-text shadow-sm" : "text-muted hover:text-text")}
+          className={cn("no-drag h-7 px-3 rounded-[5px] text-[13px] inline-flex items-center gap-2 whitespace-nowrap transition-colors", value === o.value ? "bg-raised text-text shadow-sm" : "text-muted hover:text-text")}
         >
           {o.label}
         </button>
@@ -121,9 +121,9 @@ export function Switch({ checked, onChange, ariaLabel, disabled, className }: { 
       aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={cn("no-drag relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full transition-colors disabled:opacity-40", checked ? "bg-accent" : "bg-hover", className)}
+      className={cn("no-drag relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full transition-colors disabled:opacity-40", checked ? "bg-inverse" : "bg-hover", className)}
     >
-      <span className={cn("absolute top-[2px] size-[18px] rounded-full bg-white shadow-sm transition-[left]", checked ? "left-[18px]" : "left-[2px]")} />
+      <span className={cn("absolute top-[2px] size-[18px] rounded-full shadow-sm transition-[left]", checked ? "left-[18px] bg-inverse-text" : "left-[2px] bg-white")} />
     </button>
   );
 }
@@ -169,6 +169,7 @@ export function SettingGroup({ title, children }: { title: ReactNode; children: 
  *  add a row here and a kind to SessionOpen; nothing else in the UI needs to know. */
 const SESSION_TARGET: Record<string, { label: string; action: string; Icon: typeof MessageSquare }> = {
   desktop: { label: "Claude 桌面端", action: "在 Claude 桌面端打开这个会话", Icon: MessageSquare },
+  "codex-app": { label: "Codex 应用", action: "在 Codex 应用里打开这个会话", Icon: MessageSquare },
   "terminal:claude": { label: "Claude CLI", action: "在终端里续聊：claude --resume", Icon: SquareTerminal },
   "terminal:codex": { label: "Codex CLI", action: "在终端里续聊：codex resume", Icon: SquareTerminal },
 };
@@ -178,7 +179,7 @@ const SESSION_TARGET: Record<string, { label: string; action: string; Icon: type
  *  underneath does not also open. */
 export function OpenSession({ open, size = "sm", className }: { open: SessionOpen | null | undefined; size?: "sm" | "md"; className?: string }) {
   if (!open) return null;
-  const target = SESSION_TARGET[open.kind === "desktop" ? "desktop" : `terminal:${open.bin}`];
+  const target = SESSION_TARGET[open.kind === "terminal" ? `terminal:${open.bin}` : open.kind];
   if (!target) return null;
   const { label, action, Icon } = target;
   const go = (e: { stopPropagation: () => void }) => {

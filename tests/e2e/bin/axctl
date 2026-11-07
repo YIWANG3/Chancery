@@ -1,0 +1,39 @@
+#!/bin/bash
+# A stand-in for native/bin/axctl used by the e2e tests: nothing here touches a real Claude Desktop or Codex app.
+# The two reply commands record their arguments and the message under $CHANCERY_FAKE_LOG (axctl-<n>.args /
+# axctl-<n>.prompt) and answer like the real one: a message containing 草稿 is refused the way a composer that
+# already holds a draft is; a Codex reply starts a new turn in the stand-in history database, which is what the
+# app would do.
+set -e
+case "$1" in
+  trusted) echo '{"ok":true,"trusted":true}'; exit 0 ;;
+  probe) echo '{"ok":true,"nodes":0,"projects":[],"composer":{"present":false}}'; exit 0 ;;
+  reply|codex-reply) ;;
+  *) echo '{"ok":false,"error":"fake axctl: unknown command"}'; exit 1 ;;
+esac
+
+log="${CHANCERY_FAKE_LOG:?CHANCERY_FAKE_LOG not set}"
+mkdir -p "$log"
+count=$(ls "$log" | grep -c '^axctl-.*\.args$' || true)
+n=$((count + 1))
+printf '%s\n' "$@" > "$log/axctl-$n.args"
+
+prompt=""
+thread=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prompt-file) prompt="$(cat "$2")"; shift ;;
+    --thread) thread="$2"; shift ;;
+  esac
+  shift
+done
+printf '%s' "$prompt" > "$log/axctl-$n.prompt"
+
+case "$prompt" in
+  *草稿*) echo '{"ok":false,"error":"the composer already holds a draft; nothing was sent"}'; exit 5 ;;
+esac
+if [ -n "$thread" ]; then
+  sqlite3 "${CHANCERY_SESSIONS_HOME:?}/.codex/thread_history_1.sqlite" \
+    "INSERT INTO thread_turns SELECT '$thread', MAX(rollout_ordinal) + 1, 'inProgress', NULL FROM thread_turns WHERE thread_id = '$thread'"
+fi
+echo '{"ok":true}'

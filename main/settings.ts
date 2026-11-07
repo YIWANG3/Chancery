@@ -33,6 +33,12 @@ export interface Settings {
   workerLowPriority: boolean;
   /** Register the app as a login item so the daemon is up whenever the user is. */
   launchAtLogin: boolean;
+  /** A system notification when a Claude Desktop or Codex session stops to wait, fails or finishes. */
+  sessionAlerts: boolean;
+  /** Show the floating window as soon as the app starts. */
+  floatOnStart: boolean;
+  /** Where the floating window was last left; null until it has been moved. */
+  floatPosition: { x: number; y: number } | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -58,6 +64,9 @@ export const DEFAULT_SETTINGS: Settings = {
   auditEnabled: true,
   workerLowPriority: true,
   launchAtLogin: false,
+  sessionAlerts: true,
+  floatOnStart: false,
+  floatPosition: null,
 };
 
 export function loadSettings(path: string): Settings {

@@ -105,7 +105,7 @@ export function Projects() {
 function ProjectRow({ p }: { p: Project }) {
   const update = (patch: Partial<Project>) => api.projects.update(p.id, patch);
   return (
-    <div className="bg-sidebar rounded-lg px-5 py-4 flex flex-col gap-3">
+    <div className="bg-panel2 rounded-lg px-5 py-4 flex flex-col gap-3">
       <div className="flex items-center gap-3.5">
         <span className="font-medium text-[15px]">{p.name}</span>
         {p.repo && (
@@ -120,7 +120,7 @@ function ProjectRow({ p }: { p: Project }) {
       <div className="flex items-center gap-6 text-[13px] text-muted">
         <label className="flex items-center gap-2.5">
           执行器
-          <select value={p.default_executor} onChange={(e) => update({ default_executor: e.target.value as Project["default_executor"] })} className="h-8 min-h-0 py-0 bg-panel">
+          <select value={p.default_executor} onChange={(e) => update({ default_executor: e.target.value as Project["default_executor"] })} className="h-8 min-h-0 py-0">
             <option value="claude-desktop">Claude</option>
             <option value="codex">Codex</option>
             <option value="dsh">dsh</option>
@@ -128,11 +128,11 @@ function ProjectRow({ p }: { p: Project }) {
         </label>
         <label className="flex items-center gap-2.5">
           并发
-          <input type="number" min={1} max={8} value={p.parallel} onChange={(e) => update({ parallel: Number(e.target.value) || 1 })} className="w-[64px] h-8 min-h-0 py-0 bg-panel tabular-nums" />
+          <input type="number" min={1} max={8} value={p.parallel} onChange={(e) => update({ parallel: Number(e.target.value) || 1 })} className="w-[64px] h-8 min-h-0 py-0 tabular-nums" />
         </label>
         <label className="flex items-center gap-2.5">
           模型
-          <input value={p.default_model ?? ""} placeholder="默认" onChange={(e) => update({ default_model: e.target.value || null })} className="w-[160px] h-8 min-h-0 py-0 bg-panel" />
+          <input value={p.default_model ?? ""} placeholder="默认" onChange={(e) => update({ default_model: e.target.value || null })} className="w-[160px] h-8 min-h-0 py-0" />
         </label>
         <span>
           分支 <span className="font-mono">{p.default_branch}</span>

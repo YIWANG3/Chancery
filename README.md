@@ -2,7 +2,47 @@
 
 Agent 开发平台的桌面 app：Postgres 存所有项目的工单、派发和流水；一个常驻守护进程取活、建 worktree、起 Claude / Codex / dsh 的 worker、读结果回写；界面看进度、批奏折、记一条。
 
-设计稿暂在 AfterFrame 仓库 `docs/agent-platform-design.md`（v5.1），会迁过来。
+设计稿暂在 AfterFrame 仓库 `docs/agent-platform-design.md`，会迁过来。**2026-11-05 起是 v6：重心从工单派发改成跨厂商的会话总览**，见下一节；本文其余部分描述的工单流水线已搁置，代码还在。
+
+## 会话总览（v6）
+
+app 的第一页是「会话」：把 Claude 桌面端和 Codex 应用里的会话读进一个平铺的集合，每个会话一个状态：等我、出错、卡住、待审、完成未读、运行中、已中断、已完成。只读两家自己的本地状态，不写任何东西。
+
+- 项目不是一层目录，而是每个会话上的一个标签（两家的会话按 git 仓库归并，worktree 归到主仓库）。点标签只看那个项目，再点一次看全部；工具栏里也有项目菜单。
+- 两种看法可以切换，选择会记住：列表（等我的排最前，可按状态筛选）和看板（等我 / 待看 / 运行中 / 已结束 四列，每个会话一张卡片）。行和卡片上都能回复和跳转。
+
+- Claude 的状态来自桌面端会话索引里的 `postTurnSummary`（带「要你做什么」的一句话）和 `claude agents --json`。
+- Codex 的状态来自 `~/.codex/state_5.sqlite` 和 `thread_history_1.sqlite`。它没有「在等你回答」的标记，最多判到「完成未读」。
+- 代码在 `core/overview.ts`（状态判定是纯函数，单测在 `core/overview.test.ts`），界面在 `renderer/pages/Sessions.tsx`。
+- 命令行不需要数据库，app 没开也能用：
+
+```bash
+bin/chancery sessions            # 最近 14 天，按项目列出
+bin/chancery sessions --days 3   # 换时间窗口
+bin/chancery sessions --all      # 连 codex exec 起的线程也列出（它们永远是未读）
+bin/chancery sessions --json
+```
+
+提醒和跳转：
+
+- 主进程每 10 秒读一次总览（`main/sessionWatch.ts`），窗口关着也在读。有会话停下来等你、出错、卡住、待审或跑完时提醒一次；每个会话的每一轮只提醒一次，判定在 `core/sessionAlerts.ts`。你正看着本应用的窗口，或那条会话所在的应用正在最前面时不提醒。设置里的「会话提醒」可以关掉。
+- 提醒先走系统通知；系统拒绝时改用应用自己的右上角小浮窗（`main/notify.ts`）。开发版 Electron 是临时签名，macOS 不给它通知权限，所以 `npm run dev` 下看到的是浮窗。
+- 点提醒、点会话行右边的箭头、点菜单栏图标菜单里的条目，都跳到那个应用里的那条会话：Claude 用 `claude://code/continue?session=local_…`，Codex 用 `codex://threads/<线程 id>`（`main/openSession.ts`）。两条链接都是从对方应用的包里读出来的，不是公开接口；Codex 的用真线程验过，Claude 的还没在真桌面端点过。
+- 导航上的「会话」、Dock 图标、菜单栏图标显示同一个数：最近 3 天里等我、出错、卡住的会话数。
+
+置顶浮窗：
+
+- 一个总在最前面、所有桌面都可见的小窗（`main/floatWindow.ts`、`renderer/pages/Float.tsx`），列出在等你、待看、在跑的会话，最多 5 条或 10 条，已结束的不占位置。收起后只剩一行计数。每行能跳转、能回复；点标题跳转。可拖动，位置记住；Esc 关掉。
+- 入口：会话页工具栏右端的按钮、菜单栏图标的菜单；设置里可选「启动时显示浮窗」。出现和变大小时不抢焦点，点进去打字时才拿焦点。
+
+快速回复：
+
+- 会话行右边的回复按钮展开一个输入框，回车发送。消息不是 Chancery 自己发给模型的，而是 `axctl` 通过辅助功能在后台操作那一家的应用：用跳转链接切到那条会话，核对确实切到了，往它的输入框写字，按发送。回复出现在原生应用里，和手打的一样。代码在 `core/sessionReply.ts`。
+- 核对不上就不发，并说明原因：没切过去、那条会话的输入框里有你没发的草稿、会话还在跑、开着分屏。Claude 按页面地址里的会话 id 核对；Codex 的窗口里没有线程 id，只能按窗口标题核对，所以发完还要看到这条线程的历史里多出一轮才算数。
+- Claude 桌面端发完会切回它原来显示的那条会话；Codex 应用会停在被回复的那条线程上。
+- 需要辅助功能授权（设置页能请求），两家的应用要开着。运行中的会话不提供回复。
+
+工单页已从导航里拿掉，路由 `#/tickets` 还能进（端到端测试用 `CHANCERY_ROUTE=/tickets` 从它启动）。
 
 ## 跑起来
 
@@ -17,7 +57,7 @@ npm run test:e2e   # Playwright 起真的 Electron app 跑一遍闭环（先 bui
 ## 测试
 
 - `npm test`：vitest 单测，纯函数和守护进程的 watchdog。
-- `npm run test:e2e`：Playwright 的 `_electron` 起一份独立的 app（`CHANCERY_USER_DATA` 指到临时目录：自己的 settings、内置 PG 54339、MCP 41720、日志），注册一个临时 git 仓库为项目，走完「新工单 → 置为可派 → worker 提问 → 回答 → 第二轮 worker 收到回答 → 待审 → 关掉」和「记一条」。`claude` / `codex` / `gh` 是 `tests/e2e/bin/` 里的假脚本：不花 token，几秒跑完，每次调用的参数和 prompt 记在临时目录里供断言。app 开着也能同时跑。
+- `npm run test:e2e`：Playwright 的 `_electron` 起一份独立的 app（`CHANCERY_USER_DATA` 指到临时目录：自己的 settings、内置 PG 54339、MCP 41720、日志），注册一个临时 git 仓库为项目，走完「新工单 → 置为可派 → worker 提问 → 回答 → 第二轮 worker 收到回答 → 待审 → 关掉」和「记一条」。`claude` / `codex` / `gh` 是 `tests/e2e/bin/` 里的假脚本：不花 token，几秒跑完，每次调用的参数和 prompt 记在临时目录里供断言。app 开着也能同时跑。会话总览读的是临时目录里一份假的 Claude 会话索引和 Codex 库（`CHANCERY_SESSIONS_HOME`），不碰本机真实会话；提醒只走浮窗，不弹系统通知；点跳转只记日志，不打开真应用；浮窗放在屏幕外，不会盖到你的窗口上；快速回复走假的 `axctl`。
 - `CHANCERY_E2E_REAL=1 npx playwright test tests/e2e/real.spec.ts`：同一套夹具换成真的 `claude -p`（本机走订阅登录）和书记（有 `DEEPSEEK_API_KEY` 就用 DeepSeek），派一张「README 加一行并提交」的工单，断言 worktree 里真的多了一个 commit 和那一行。会花 token，几分钟。
 - GitHub Actions（`.github/workflows/e2e.yml`，macOS runner）：假 CLI 那层每次 push 都跑；真实层需要仓库 secret `DEEPSEEK_API_KEY`，用 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` 把 `claude` CLI 接到 DeepSeek 上跑。
 - `CHANCERY_E2E_KEEP=1` 保留临时目录，`CHANCERY_E2E_ROOT` 换临时目录的位置。
@@ -31,7 +71,7 @@ core/        不依赖 Electron；守护进程、仓库层、执行器、迁移�
 main/        Electron 主进程：内置 PG、IPC、托盘、全局快捷键（⌘⇧Space 记一条）
 native/      axctl（Swift）：辅助功能驱动 Claude Desktop
 preload/     contextBridge：window.chancery.invoke / onChanged
-renderer/    React + Tailwind：看板、等我、项目、Agent、设置、QuickCapture
+renderer/    React + Tailwind：会话、项目、Agent、设置、QuickCapture、提醒浮窗
 cli/         bin/chancery：register / projects / ticket / tickets / show / status / draft / tick（要 app 在跑，PG 在它里面）
 ```
 
@@ -50,6 +90,10 @@ axctl usage                桌面端显示的订阅用量
 axctl new-session --project NAME --prompt-file PATH [--worktree]
 axctl codex-probe             Codex app 侧栏的项目、composer 状态
 axctl codex-new-chat --project FOLDER --prompt-file PATH
+axctl reply --session local_ID --prompt-file PATH [--stay]              往 Claude 桌面端的一条会话里发一句
+axctl codex-reply --thread ID --title TITLE --prompt-file PATH          往 Codex 的一条线程里发一句
+axctl codex-clear --text-file PATH    Codex 输入框里留着这段字时清掉
+axctl dump --app claude|codex [--grep TEXT]    打印辅助功能树，找选择器用
 ```
 
 选择器是写死的（AXDescription "Prompt" / "Send"、AXCheckBox "Worktree"、AXButton "New session in …"），Desktop 升级后用 `probe` 核对；以后可以在选择器失手时把 `probe` 的树交给一个判定模型兜底。
@@ -92,4 +136,9 @@ codex mcp add chancery --url http://127.0.0.1:41710/mcp
 
 - `CHANCERY_ROUTE=/inbox` 启动时打开哪一页
 - `CHANCERY_SCREENSHOT=/path/x.png` 渲染完截图后退出（`CHANCERY_SCREENSHOT_DELAY` 毫秒）
+- `CHANCERY_SESSIONS_HOME` 会话总览从这个目录下读两家的状态，代替真实的 home（测试用）
+- `CHANCERY_NOTICES=panel` 提醒不试系统通知，直接用提醒浮窗
+- `CHANCERY_OFFSCREEN=1` 提醒浮窗和置顶浮窗都放到屏幕外（测试用）
+- `CHANCERY_AXCTL` 换一个 axctl（测试用假的 `tests/e2e/bin/axctl`）
+- `CHANCERY_NO_EXTERNAL_OPEN=1` 跳转只记日志，不真的打开 Claude、Codex 或终端（测试用）
 - `CHANCERY_USER_DATA` 让 app 或 CLI 用另一份 userData（settings、内置 PG、日志、单实例锁都在里面）；`CHANCERY_PG` 给 CLI 指另一个 Postgres

@@ -11,6 +11,11 @@ import { fileURLToPath } from "node:url";
  *  DEEPSEEK_API_KEY set, DeepSeek as the clerk. Everything else on PATH stays real too (git, gh). */
 export const REAL = process.env.CHANCERY_E2E_REAL === "1";
 
+const sqlText = (s: string) => `'${s.replace(/'/g, "''")}'`;
+
+/** The Codex thread every test environment starts with, mid-turn. */
+export const CODEX_THREAD = "01a1e2e0-0000-7000-8000-000000000001";
+
 export interface TestEnv {
   root: string;
   userData: string;
@@ -19,6 +24,45 @@ export interface TestEnv {
   /** Where the fake CLIs record each call: claude-<n>.args / claude-<n>.prompt */
   fakeLog: string;
   worktreeRoot: string;
+  /** Stands in for the home directory the session overview reads Claude Desktop's and Codex's state from. */
+  sessionsHome: string;
+}
+
+/** Writes one entry of Claude Desktop's session index under the stand-in home, the way the app itself would. */
+export function writeClaudeSession(env: TestEnv, id: string, entry: Record<string, unknown>): void {
+  const dir = join(env.sessionsHome, "Library", "Application Support", "Claude", "claude-code-sessions", "org", "user");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${id}.json`), JSON.stringify({ sessionId: id, cwd: env.projectDir, originCwd: env.projectDir, isArchived: false, lastActivityAt: Date.now(), ...entry }));
+}
+
+/** Puts one thread, with its newest turn, into stand-ins for the Codex app's two databases. Only the columns the
+ *  overview reads exist. Calling it again for the same thread replaces what was there, like the next turn would. */
+export function writeCodexThread(env: TestEnv, id: string, t: { title: string; turn: number; status: "inProgress" | "completed" | "failed" | "interrupted"; unread?: boolean; error?: string }): void {
+  const dir = join(env.sessionsHome, ".codex");
+  mkdirSync(dir, { recursive: true });
+  const now = Date.now();
+  const sqlite = (db: string, sql: string) => execFileSync("sqlite3", [join(dir, db), sql], { stdio: "pipe" });
+  sqlite(
+    "state_5.sqlite",
+    `CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, title TEXT, name TEXT, cwd TEXT, source TEXT, archived INTEGER, recency_at_ms INTEGER, updated_at_ms INTEGER, updated_at INTEGER);
+     CREATE TABLE IF NOT EXISTS thread_read_receipts (thread_id TEXT PRIMARY KEY, first_unread_turn TEXT);
+     INSERT OR REPLACE INTO threads VALUES (${sqlText(id)}, ${sqlText(t.title)}, NULL, ${sqlText(env.projectDir)}, 'vscode', 0, ${now}, ${now}, ${Math.floor(now / 1000)});
+     INSERT OR REPLACE INTO thread_read_receipts VALUES (${sqlText(id)}, ${t.unread ? sqlText(`turn-${t.turn}`) : "NULL"});`,
+  );
+  sqlite(
+    "thread_history_1.sqlite",
+    `CREATE TABLE IF NOT EXISTS thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, error_json TEXT, PRIMARY KEY (thread_id, rollout_ordinal));
+     CREATE TABLE IF NOT EXISTS thread_items (thread_id TEXT, created_at_ms INTEGER);
+     INSERT OR REPLACE INTO thread_turns VALUES (${sqlText(id)}, ${t.turn}, ${sqlText(t.status)}, ${t.error ? sqlText(JSON.stringify({ message: t.error })) : "NULL"});
+     INSERT INTO thread_items VALUES (${sqlText(id)}, ${now});`,
+  );
+  // Leave both databases the way the real ones are whenever the Codex app has no connection open: WAL mode with
+  // neither side file on disk. A plain read-only open fails on that, so every read in the suite goes through the
+  // overview's fallback.
+  for (const db of ["state_5.sqlite", "thread_history_1.sqlite"]) {
+    sqlite(db, "PRAGMA journal_mode=WAL; PRAGMA wal_checkpoint(TRUNCATE);");
+    for (const side of ["-wal", "-shm"]) rmSync(join(dir, `${db}${side}`), { force: true });
+  }
 }
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
@@ -30,7 +74,8 @@ function makeEnv(): TestEnv {
   const projectDir = join(root, "demo-project");
   const fakeLog = join(root, "fake-log");
   const worktreeRoot = join(root, "worktrees");
-  for (const d of [userData, projectDir, fakeLog, worktreeRoot]) mkdirSync(d, { recursive: true });
+  const sessionsHome = join(root, "sessions-home");
+  for (const d of [userData, projectDir, fakeLog, worktreeRoot, sessionsHome]) mkdirSync(d, { recursive: true });
 
   const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", ...args], { cwd: projectDir, stdio: "pipe" });
   git("init", "-q", "-b", "main");
@@ -57,13 +102,21 @@ function makeEnv(): TestEnv {
         autoTriage: false,
         auditEnabled: true,
         workerLowPriority: false,
+        // Notices are on, but CHANCERY_NOTICES=panel (below) keeps them in the app's own panel, and
+        // CHANCERY_OFFSCREEN puts that panel and the floating window outside every display: a test run raises no
+        // system notification and puts nothing on top of the windows of whoever runs it.
+        // CHANCERY_NO_EXTERNAL_OPEN makes a jump only log where it would have gone.
+        sessionAlerts: true,
         deepseekApiKey: REAL ? (process.env.DEEPSEEK_API_KEY ?? "") : "",
       },
       null,
       2,
     ),
   );
-  return { root, userData, projectDir, fakeLog, worktreeRoot };
+  const env = { root, userData, projectDir, fakeLog, worktreeRoot, sessionsHome };
+  writeClaudeSession(env, "local_e2e-1", { title: "端到端会话", lastAssistantUuid: "u1", postTurnSummaryFor: "u1", postTurnSummary: { status_category: "completed", status_detail: "第一轮做完了" } });
+  writeCodexThread(env, CODEX_THREAD, { title: "端到端线程", turn: 1, status: "inProgress" });
+  return env;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -81,7 +134,8 @@ export const test = base.extend<{}, { env: TestEnv; app: ElectronApplication; wi
     async ({ env }, use) => {
       const app = await electron.launch({
         args: [repoRoot],
-        env: { ...process.env, CHANCERY_USER_DATA: env.userData, CHANCERY_FAKE_LOG: env.fakeLog, PATH: REAL ? (process.env.PATH ?? "") : `${fakeBin}:${process.env.PATH ?? ""}` },
+        // These specs exercise the ticket pipeline, whose page is no longer in the navigation, so start on it.
+        env: { ...process.env, CHANCERY_ROUTE: "/tickets", CHANCERY_USER_DATA: env.userData, CHANCERY_SESSIONS_HOME: env.sessionsHome, CHANCERY_NOTICES: "panel", CHANCERY_OFFSCREEN: "1", CHANCERY_NO_EXTERNAL_OPEN: "1", CHANCERY_AXCTL: join(fakeBin, "axctl"), CHANCERY_FAKE_LOG: env.fakeLog, PATH: REAL ? (process.env.PATH ?? "") : `${fakeBin}:${process.env.PATH ?? ""}` },
         timeout: 120_000, // the first start initialises the embedded Postgres cluster
       });
       await use(app);

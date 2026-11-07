@@ -4,15 +4,18 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Inter"', '"PingFang SC"', '"Microsoft YaHei UI"', "system-ui", "sans-serif"],
+        sans: ['"Geist Variable"', '"PingFang SC"', '"Microsoft YaHei UI"', "system-ui", "sans-serif"],
         mono: ['"SF Mono"', "Menlo", "monospace"],
       },
       colors: {
         app: "rgb(var(--app-bg) / <alpha-value>)",
         sidebar: "rgb(var(--sidebar-bg) / <alpha-value>)",
         panel: "rgb(var(--panel-bg) / <alpha-value>)",
-        panel2: "rgb(var(--panel-bg-2) / <alpha-value>)",
-        hover: "rgb(var(--hover-bg) / <alpha-value>)",
+        // Fills carry their own alpha, so they take no opacity modifier (no bg-panel2/50).
+        panel2: "rgb(var(--fill) / var(--fill-1))",
+        hover: "rgb(var(--fill) / var(--fill-2))",
+        raised: "rgb(var(--raised-bg) / var(--raised-alpha))",
+        overlay: "rgb(0 0 0 / var(--overlay-alpha))",
         line: "rgb(var(--line-color) / <alpha-value>)",
         muted: "rgb(var(--muted-text) / <alpha-value>)",
         text: "rgb(var(--text-color) / <alpha-value>)",

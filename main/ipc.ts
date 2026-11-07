@@ -1,7 +1,8 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { Daemon, Repo, TicketStatus } from "../core/index.js";
-import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, sessionOpenFor, type SessionOpen } from "../core/index.js";
+import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, replyToSession, sessionOpenFor, type Overview, type ReplyTarget, type SessionOpen } from "../core/index.js";
 import { run } from "../core/util/run.js";
+import { openSession } from "./openSession.js";
 import type { Settings } from "./settings.js";
 
 export interface IpcDeps {
@@ -12,21 +13,20 @@ export interface IpcDeps {
   worktreeRoot: () => string;
   pgInfo: () => { embedded: boolean; connectionString: string };
   axctlPath: string;
+  log: (msg: string) => void;
+  showMain: () => void;
+  /** The session watch's newest snapshot of both apps' sessions. */
+  sessions: () => Promise<Overview>;
+  /** Has the session watch read again now. */
+  refreshSessions: () => void;
+  /** Where the session overview reads the two apps' state from, when not the real home. */
+  sessionsHome?: string;
 }
 
 /** One channel per verb. The renderer calls window.chancery.invoke(channel, payload). */
 export function registerIpc(deps: IpcDeps): void {
   const { repo, daemon } = deps;
-  /** Single-quotes a string for sh. */
-const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-
-/** Opens a new Terminal window running the command (macOS). The command is passed through AppleScript as a string literal. */
-async function openTerminal(command: string): Promise<void> {
-  const lit = command.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  await run("osascript", ["-e", 'tell application "Terminal"', "-e", "activate", "-e", `do script "${lit}"`, "-e", "end tell"], { timeoutMs: 10_000 });
-}
-
-const h = <T, R>(channel: string, fn: (payload: T, win: BrowserWindow | null) => Promise<R> | R) =>
+  const h = <T, R>(channel: string, fn: (payload: T, win: BrowserWindow | null) => Promise<R> | R) =>
     ipcMain.handle(channel, (ev, payload: T) => fn(payload, BrowserWindow.fromWebContents(ev.sender)));
 
   h("projects:list", () => repo.listProjects());
@@ -104,6 +104,9 @@ const h = <T, R>(channel: string, fn: (payload: T, win: BrowserWindow | null) =>
     return daemon.status();
   });
   h("agents:claude", () => listClaudeAgents(deps.settings().claudeBin).catch(() => []));
+  // The overview comes from the session watch, which reads the two apps' own files on a timer whether or not a
+  // window is open, and tells the windows when something changed.
+  h("sessions:overview", () => deps.sessions());
   h<{ prompt?: boolean } | undefined, unknown>("ax:status", async (p) => {
     try {
       const { stdout } = await run(deps.axctlPath, ["trusted", ...(p?.prompt ? ["--prompt"] : [])], { timeoutMs: 10_000 });
@@ -126,15 +129,21 @@ const h = <T, R>(channel: string, fn: (payload: T, win: BrowserWindow | null) =>
     return next;
   });
 
+  h("main:show", () => deps.showMain());
   h<{ url: string }, void>("shell:open", ({ url }) => shell.openExternal(url));
   h<{ path: string }, void>("shell:reveal", ({ path }) => shell.showItemInFolder(path));
-  /** Opens a session in Claude Desktop by its own local_<id> (from tickets:get), never by the CLI session id. */
-  h<{ open: SessionOpen }, void>("session:open", async ({ open }) => {
-    if (open.kind === "desktop") return shell.openExternal(`claude://code/continue?session=${encodeURIComponent(open.desktopSessionId)}`);
-    if (!/^[0-9a-f-]{36}$/i.test(open.sessionId)) throw new Error("bad session id");
-    const bin = open.bin === "codex" ? deps.settings().codexBin : deps.settings().claudeBin;
-    const resume = open.bin === "codex" ? ["resume", open.sessionId] : ["--resume", open.sessionId];
-    await openTerminal([`cd ${shq(open.cwd)}`, [shq(bin), ...resume].join(" ")].join(" && "));
+  h<{ open: SessionOpen }, void>("session:open", ({ open }) => openSession(open, deps.settings(), deps.log));
+  // A quick reply: one message into a conversation, sent by its own app. The list is read again a moment later,
+  // when the app has had time to mark the session as running.
+  h<{ target: ReplyTarget; text: string }, void>("session:reply", async ({ target, text }) => {
+    deps.log(`reply to ${target.app}:${target.id} (${text.trim().length} chars)`);
+    try {
+      await replyToSession(target, text, { axctlPath: deps.axctlPath, home: deps.sessionsHome });
+    } catch (err) {
+      deps.log(`reply to ${target.app}:${target.id} failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
+    setTimeout(deps.refreshSessions, 1500);
   });
 }
 

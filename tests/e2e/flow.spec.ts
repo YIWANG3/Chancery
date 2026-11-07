@@ -2,7 +2,7 @@
 // answers, the next worker gets the answer and finishes. No tokens, deterministic, runs in CI.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, REAL, test } from "./fixtures";
+import { CODEX_THREAD, expect, REAL, test, writeClaudeSession, writeCodexThread } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
 test.skip(REAL, "fake-CLI specs; set CHANCERY_E2E_REAL=1 for real.spec.ts instead");
@@ -22,7 +22,10 @@ test("注册一个 git 目录为项目", async ({ win, env }) => {
 });
 
 test("新工单进收件", async ({ win }) => {
-  await win.getByRole("button", { name: /^工单/ }).click();
+  // The ticket page has no navigation entry any more; its route still resolves.
+  await win.evaluate(() => {
+    location.hash = "/tickets";
+  });
   await win.getByRole("button", { name: "新工单" }).click();
   const dialog = win.getByRole("dialog", { name: "新工单" });
   await dialog.getByLabel("标题").fill(TITLE);
@@ -172,4 +175,174 @@ test("设置页显示内置数据库和 MCP 地址", async ({ win }) => {
   await win.getByRole("button", { name: "设置", exact: true }).click();
   await expect(win.getByText(/内置的 Postgres/)).toBeVisible();
   await expect(win.getByText(/127\.0\.0\.1:41720\/mcp/).first()).toBeVisible();
+});
+
+test("会话页是导航里的第一项，导航里没有工单", async ({ win }) => {
+  await win.getByRole("button", { name: /^会话/ }).click();
+  await expect(win.getByRole("combobox", { name: "项目" })).toBeVisible({ timeout: 30_000 });
+  await expect(win.getByRole("radio", { name: "等我 0" })).toBeVisible();
+  await expect(win.getByText("端到端会话")).toBeVisible();
+  await expect(win.getByText("第一轮做完了")).toBeVisible();
+  // Both apps' sessions sit in one list, under the one project their directory belongs to.
+  await expect(win.getByText("端到端线程")).toBeVisible();
+  await expect(win.getByRole("radio", { name: "运行中 1" })).toBeVisible();
+  // The project is a tag on each session and an entry in the project menu, not a level above the list.
+  await expect(win.getByRole("listitem").filter({ hasText: "端到端线程" }).getByRole("button", { name: "demo-project" })).toBeVisible();
+  await expect(win.getByRole("combobox", { name: "项目" }).getByRole("option", { name: /^demo-project 2/ })).toBeAttached();
+  await expect(win.getByRole("button", { name: /^工单/ })).toHaveCount(0);
+});
+
+test("会话停下来等你：列表、导航角标和 Dock 角标都跟着变，并且只记一次提醒", async ({ win, app, env }) => {
+  // Claude Desktop rewrites the entry when a turn ends: a new reply, and a summary that says it is blocked.
+  writeClaudeSession(env, "local_e2e-1", { title: "端到端会话", lastAssistantUuid: "u2", postTurnSummaryFor: "u2", postTurnSummary: { status_category: "blocked", status_detail: "卡在选型", needs_action: "选 A 方案还是 B 方案" } });
+  // The watch reads every 10 s and tells the window; nothing here reloads or clicks.
+  await expect(win.getByRole("button", { name: /^会话.*1 个在等你/ })).toBeVisible({ timeout: 30_000 });
+  await expect(win.getByRole("radio", { name: "等我 1" })).toBeVisible();
+  await expect(win.getByText("选 A 方案还是 B 方案")).toBeVisible();
+  await expect(win.getByRole("button", { name: "在 Claude 桌面端打开这个会话" })).toBeVisible();
+  expect(await app.evaluate(({ app: a }) => a.dock?.getBadge())).toBe("1");
+  const alerted = () => readFileSync(join(env.userData, "logs", "chancery.log"), "utf8").split("\n").filter((l) => l.includes("needs-you claude:local_e2e-1")).length;
+  expect(alerted()).toBe(1);
+
+  // Answered: the next turn finishes with nothing left to do, and the counts clear.
+  writeClaudeSession(env, "local_e2e-1", { title: "端到端会话", lastAssistantUuid: "u3", postTurnSummaryFor: "u3", postTurnSummary: { status_category: "completed", status_detail: "按 B 方案做完了" } });
+  await expect(win.getByRole("radio", { name: "等我 0" })).toBeVisible({ timeout: 30_000 });
+  await expect(win.getByRole("button", { name: "会话", exact: true })).toBeVisible();
+  expect(await app.evaluate(({ app: a }) => a.dock?.getBadge())).toBe("");
+  expect(alerted()).toBe(1);
+  expect(readFileSync(join(env.userData, "logs", "chancery.log"), "utf8")).toContain("finished claude:local_e2e-1");
+});
+
+test("Codex 的线程跑完没看：进待看、记一次提醒，能跳回 Codex；出错的算等我", async ({ win, env }) => {
+  writeCodexThread(env, CODEX_THREAD, { title: "端到端线程", turn: 1, status: "completed", unread: true });
+  await expect(win.getByRole("radio", { name: "待看 1" })).toBeVisible({ timeout: 30_000 });
+  await expect(win.getByRole("radio", { name: "运行中 0" })).toBeVisible();
+  await expect(win.getByText("完成未读")).toBeVisible();
+  await expect(win.getByRole("button", { name: "在 Codex 应用里打开这个会话" })).toBeVisible();
+  const log = () => readFileSync(join(env.userData, "logs", "chancery.log"), "utf8");
+  expect(log()).toContain(`finished codex:${CODEX_THREAD}`);
+
+  writeCodexThread(env, CODEX_THREAD, { title: "端到端线程", turn: 2, status: "failed", error: "You've hit your usage limit." });
+  await expect(win.getByRole("button", { name: /^会话.*1 个在等你/ })).toBeVisible({ timeout: 30_000 });
+  await expect(win.getByText("You've hit your usage limit.")).toBeVisible();
+  expect(log()).toContain(`error codex:${CODEX_THREAD}`);
+});
+
+test("窗口不在眼前时，停下来的会话出现在右上角的提醒浮窗里", async ({ app, win, env }) => {
+  // Nothing is raised while this window is in front, so take it out of the way first.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.hide()));
+  // A Codex thread, so the notice is due unless the Codex app itself happens to be in front on this machine.
+  writeCodexThread(env, CODEX_THREAD, { title: "端到端线程", turn: 3, status: "failed", error: "这是测试，不用处理" });
+  // The panel's window is made the first time a notice goes to it, which may have been during an earlier test on a
+  // machine where the app's window was not in front.
+  const findPanel = () => app.windows().find((w) => w.url().includes("#/notices"));
+  await expect.poll(() => Boolean(findPanel()), { timeout: 30_000 }).toBe(true);
+  const panel = findPanel()!;
+  // Earlier notices may still be in the panel when the app's window was not in front during those tests.
+  const row = panel.getByRole("button", { name: /^出错 · 端到端线程/ }).filter({ hasText: "这是测试，不用处理" });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("Codex · demo-project");
+  // The panel shows without becoming the focused window, so it cannot take the keyboard from another app.
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow() === null)).toBe(true);
+  // Clicking a notice goes to that thread in the Codex app (only logged here) and takes the notice away.
+  await row.click();
+  await expect(row).toHaveCount(0);
+  expect(readFileSync(join(env.userData, "logs", "chancery.log"), "utf8")).toContain(`open codex://threads/${CODEX_THREAD}`);
+  // Dismissing what is left puts the panel away.
+  // A notice can leave by itself (they expire after 20 s) between counting and clicking; that is fine.
+  const dismiss = panel.getByRole("button", { name: "关掉这条提醒" });
+  for (let i = 0; i < 8 && (await dismiss.count()); i++) await dismiss.first().click({ timeout: 2_000 }).catch(() => {});
+  await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.isVisible()).length)).toBe(0);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes("#/sessions"))?.show());
+  await expect(win.getByRole("button", { name: /^会话.*1 个在等你/ })).toBeVisible();
+});
+
+test("快速回复：在会话页回一句，由那一家的应用发出去；被拒时说明原因并留着你写的字", async ({ win, env }) => {
+  const sent = (n: number) => ({ args: readFileSync(join(env.fakeLog, `axctl-${n}.args`), "utf8").trim().split("\n"), prompt: readFileSync(join(env.fakeLog, `axctl-${n}.prompt`), "utf8") });
+
+  // Claude: the stand-in refuses a message containing 草稿 the way the real tool refuses a composer with a draft.
+  const claude = win.getByRole("listitem").filter({ hasText: "端到端会话" });
+  await claude.getByRole("button", { name: "回复这个会话" }).click();
+  const box = claude.getByRole("textbox", { name: "回复「端到端会话」" });
+  await box.fill("这句话里有草稿两个字");
+  await box.press("Enter");
+  await expect(claude.getByRole("alert")).toContainText("草稿");
+  await expect(claude.getByRole("alert")).toContainText("没有发送");
+  await expect(box).toHaveValue("这句话里有草稿两个字");
+
+  await box.fill("用 B 方案继续");
+  await claude.getByRole("button", { name: "发送" }).click();
+  await expect(claude.getByText("已发到 Claude，等它开始跑。")).toBeVisible();
+  await expect(box).toHaveCount(0);
+  expect(sent(2).args.slice(0, 4)).toEqual(["reply", "--session", "local_e2e-1", "--prompt-file"]);
+  expect(sent(2).prompt).toBe("用 B 方案继续");
+
+  // Codex: the thread is identified by id and title; the send counts once its history shows a new turn, and the
+  // list then shows it running, which takes the reply button away.
+  const codex = win.getByRole("listitem").filter({ hasText: "端到端线程" });
+  await codex.getByRole("button", { name: "回复这个会话" }).click();
+  await codex.getByRole("textbox", { name: "回复「端到端线程」" }).fill("额度恢复了，再试一次");
+  await codex.getByRole("textbox", { name: "回复「端到端线程」" }).press("Enter");
+  await expect(codex.getByText("运行中")).toBeVisible({ timeout: 30_000 });
+  await expect(codex.getByRole("button", { name: "回复这个会话" })).toHaveCount(0);
+  expect(sent(3).args.slice(0, 6)).toEqual(["codex-reply", "--thread", CODEX_THREAD, "--title", "端到端线程", "--prompt-file"]);
+  expect(sent(3).prompt).toBe("额度恢复了，再试一次");
+  expect(readFileSync(join(env.userData, "logs", "chancery.log"), "utf8")).toContain(`reply to codex:${CODEX_THREAD}`);
+});
+
+test("看板和列表可以切换：看板按 等我 / 待看 / 运行中 / 已结束 分列，点项目标签只看那个项目", async ({ win, env }) => {
+  // A second project, so that narrowing to one has something to leave out.
+  writeClaudeSession(env, "local_e2e-9", { title: "另一个目录里的会话", cwd: env.root, originCwd: env.root, lastAssistantUuid: "z1", postTurnSummaryFor: "z1", postTurnSummary: { status_category: "review_ready", status_detail: "PR 已开" } });
+  await win.getByRole("radio", { name: "看板" }).click();
+  const column = (name: string) => win.getByRole("list", { name });
+  await expect(column("待看").getByRole("listitem").filter({ hasText: "另一个目录里的会话" })).toBeVisible({ timeout: 30_000 });
+  await expect(column("运行中").getByRole("listitem").filter({ hasText: "端到端线程" })).toBeVisible();
+  await expect(column("已结束").getByRole("listitem").filter({ hasText: "端到端会话" })).toBeVisible();
+  await expect(column("等我").getByText("没有")).toBeVisible();
+  // The state filter belongs to the list; on the board the columns are the states.
+  await expect(win.getByRole("radio", { name: /^待看 \d+$/ })).toHaveCount(0);
+
+  // A card carries the same tag, reply and jump as a row.
+  const card = column("已结束").getByRole("listitem").filter({ hasText: "端到端会话" });
+  await expect(card.getByRole("button", { name: "回复这个会话" })).toBeVisible();
+  await card.getByRole("button", { name: "demo-project" }).click();
+  await expect(win.getByRole("combobox", { name: "项目" })).toHaveValue(/\/demo-project$/);
+  await expect(win.getByText("另一个目录里的会话")).toHaveCount(0);
+  await card.getByRole("button", { name: "demo-project" }).click();
+  await expect(win.getByRole("combobox", { name: "项目" })).toHaveValue("");
+
+  await win.getByRole("radio", { name: "列表" }).click();
+  await expect(win.getByRole("radio", { name: /^待看 \d+$/ })).toBeVisible();
+  await expect(win.getByRole("listitem").filter({ hasText: "另一个目录里的会话" })).toBeVisible();
+});
+
+test("置顶浮窗：收起只剩计数，展开最多列 5 条，已结束的不占位置", async ({ app, win }) => {
+  await win.evaluate(() => window.chancery.invoke("float:toggle"));
+  const findFloat = () => app.windows().find((w) => w.url().includes("#/float"));
+  await expect.poll(() => Boolean(findFloat()), { timeout: 30_000 }).toBe(true);
+  const float = findFloat()!;
+  // Still here from the earlier tests: one session waiting to be looked at, one running, one finished.
+  await expect(float.getByRole("list", { name: "浮窗里的会话" })).toBeVisible();
+  await expect(float.getByRole("listitem")).toHaveCount(2);
+  await expect(float.getByText("另一个目录里的会话")).toBeVisible();
+  await expect(float.getByText("端到端线程")).toBeVisible();
+  await expect(float.getByText("端到端会话")).toHaveCount(0);
+  await expect(float.getByText("待看 1")).toBeVisible();
+  await expect(float.getByText("运行中 1")).toBeVisible();
+  // It came up without taking focus from the window that opened it.
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.webContents.getURL().includes("#/float") ?? false)).toBe(false);
+  const height = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes("#/float"))?.getBounds().height ?? 0);
+  const open = await height();
+  expect(open).toBeGreaterThan(80);
+
+  await float.getByRole("button", { name: "收起" }).click();
+  await expect(float.getByRole("list", { name: "浮窗里的会话" })).toHaveCount(0);
+  await expect(float.getByText("待看 1")).toBeVisible();
+  await expect.poll(height).toBeLessThan(60);
+  await float.getByRole("button", { name: "展开" }).click();
+  await expect(float.getByRole("listitem")).toHaveCount(2);
+  await expect.poll(height).toBe(open);
+
+  await float.getByRole("button", { name: "关闭浮窗" }).click();
+  await expect.poll(() => win.evaluate(() => window.chancery.invoke("float:visible"))).toBe(false);
 });

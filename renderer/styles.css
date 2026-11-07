@@ -1,47 +1,64 @@
+@import "@fontsource-variable/geist/wght.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /*
-  Two themes, one token set. The main process sets nativeTheme.themeSource from the
-  「外观」setting, so prefers-color-scheme already reflects 跟随系统 / 浅色 / 深色 here.
-  Surfaces step by fill, not by border: app < sidebar < panel2 < hover.
-  `line` is the only divider color and is for structure only, never for grouping.
+  Two themes, one token set, every grey neutral (r = g = b): no tint in either theme.
+  The main process sets nativeTheme.themeSource from the「外观」setting, so prefers-color-scheme
+  already reflects 跟随系统 / 浅色 / 深色 here.
+
+  Layers, back to front:
+    app / sidebar   the window frame; pure black in dark
+    panel           the content container inset in the frame, and anything that floats (drawer, dialog)
+    panel2 / hover  fills for controls, cards and rows. They are the text color at a low alpha, so the
+                    same fill reads correctly on the frame, on the container and on a tinted box
+    raised          the chosen item inside a fill (segmented control)
+  `line` is the only divider color.
 */
 :root {
-  --app-bg: 255 255 255;
-  --sidebar-bg: 243 243 245;
+  --app-bg: 247 247 247;
+  --sidebar-bg: 247 247 247;
   --panel-bg: 255 255 255;
-  --panel-bg-2: 243 243 245;
-  --hover-bg: 232 232 236;
-  --line-color: 226 226 230;
-  --muted-text: 110 113 122;
-  --text-color: 24 24 27;
-  --inverse-bg: 24 24 27;
+  --fill: 0 0 0;
+  --fill-1: 0.05;
+  --fill-2: 0.09;
+  --raised-bg: 255 255 255;
+  --raised-alpha: 1;
+  --line-color: 232 232 232;
+  --muted-text: 110 110 110;
+  --text-color: 31 31 31;
+  --inverse-bg: 34 34 34;
   --inverse-text: 255 255 255;
-  --accent-color: 37 99 235;
-  --success-color: 22 142 83;
-  --warn-color: 184 115 11;
-  --error-color: 205 54 54;
+  --accent-color: 0 112 216;
+  --success-color: 0 138 54;
+  --warn-color: 176 108 0;
+  --error-color: 212 58 40;
+  --overlay-alpha: 0.25;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --app-bg: 20 21 24;
-    --sidebar-bg: 28 29 34;
-    --panel-bg: 31 32 38;
-    --panel-bg-2: 41 42 49;
-    --hover-bg: 52 53 61;
-    --line-color: 58 59 68;
-    --muted-text: 150 153 163;
-    --text-color: 230 231 235;
-    --inverse-bg: 236 237 240;
-    --inverse-text: 20 20 23;
-    --accent-color: 110 150 255;
-    --success-color: 84 196 132;
-    --warn-color: 236 174 68;
-    --error-color: 240 100 100;
+    --app-bg: 0 0 0;
+    --sidebar-bg: 0 0 0;
+    --panel-bg: 13 13 13;
+    --fill: 255 255 255;
+    --fill-1: 0.06;
+    --fill-2: 0.1;
+    --raised-bg: 255 255 255;
+    --raised-alpha: 0.12;
+    --line-color: 31 31 31;
+    --muted-text: 150 150 150;
+    --text-color: 230 230 230;
+    --inverse-bg: 238 238 238;
+    --inverse-text: 0 0 0;
+    --accent-color: 76 179 255;
+    --success-color: 128 201 51;
+    --warn-color: 255 190 69;
+    --error-color: 233 83 80;
+    --overlay-alpha: 0.6;
     color-scheme: dark;
   }
 }
@@ -67,6 +84,10 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  background: rgb(var(--fill) / 0.2);
 }
 
 button {
@@ -98,17 +119,26 @@ label:has(select) {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--line-color));
+  background: rgb(var(--fill) / 0.14);
   border-radius: 6px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--fill) / 0.24);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 
-/* Fields are fills, not boxes; focus is the ring, visible in both themes. */
-input:not([type="checkbox"]),
+/* Fields are fills, not boxes; hover deepens the fill and focus draws a neutral ring.
+   Kept at single-element specificity in the base layer (after preflight), so a utility on the element always wins. */
+@layer base {
+input:where(:not([type="checkbox"])),
 textarea,
 select {
-  background: rgb(var(--panel-bg-2));
+  background-color: rgb(var(--fill) / var(--fill-1));
   color: rgb(var(--text-color));
   border: 0;
   border-radius: 8px;
@@ -116,10 +146,17 @@ select {
   font: inherit;
   outline: none;
   min-height: 36px;
+  transition: background-color 0.15s;
+}
+input:where(:not([type="checkbox"]):hover),
+textarea:where(:hover),
+select:where(:hover) {
+  background-color: rgb(var(--fill) / var(--fill-2));
+}
 }
 input::placeholder,
 textarea::placeholder {
-  color: rgb(var(--muted-text) / 0.8);
+  color: rgb(var(--muted-text) / 0.7);
 }
 select {
   padding-right: 30px;
@@ -128,15 +165,20 @@ select {
   background-repeat: no-repeat;
   background-position: right 10px center;
 }
+/* The native popup list paints its own surface; give it a solid one so the alpha fill is not shown on white. */
+select option {
+  background: rgb(var(--panel-bg));
+  color: rgb(var(--text-color));
+}
 input[type="checkbox"] {
-  accent-color: rgb(var(--accent-color));
+  accent-color: rgb(var(--inverse-bg));
   width: 15px;
   height: 15px;
   margin: 0;
 }
 
 :focus-visible {
-  outline: 2px solid rgb(var(--accent-color));
+  outline: 2px solid rgb(var(--text-color) / 0.45);
   outline-offset: 1px;
 }
 input:focus-visible,
