@@ -5,7 +5,8 @@ import { HELD_UP_WINDOW_MS } from "@core/sessionAlerts";
 import { api } from "../api";
 import { cn } from "../cn";
 import { useChanged } from "../hooks";
-import { APP_LABEL, BUCKET, BUCKET_LABEL, STATE_DOT, STATE_LABEL, ago, useReply, type Bucket } from "../sessionBits";
+import { useT } from "../i18n";
+import { APP_LABEL, BUCKET, STATE_DOT, ago, bucketKey, stateKey, useReply, type Bucket } from "../sessionBits";
 
 /** Folded: one line of counts. Open: the counts and the sessions under them. */
 type Mode = "mini" | "full";
@@ -35,6 +36,7 @@ const DOT: Record<Bucket, string> = { needs: "bg-warn", look: "bg-success", runn
  * itself after every render and the main process gives the window that size.
  */
 export function Float() {
+  const t = useT();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [prefs, setPrefs] = useState<Prefs>(load);
   const root = useRef<HTMLDivElement>(null);
@@ -90,17 +92,17 @@ export function Float() {
     <div ref={root} style={{ width: WIDTH[prefs.mode] }} className="bg-panel text-text text-[13px] select-none">
       {/* The header is the handle: drag anywhere on it that is not a button. */}
       <div className={cn("drag flex items-center gap-3 px-3", mini ? "h-10" : "h-10 border-b border-line")}>
-        <span className="flex items-center gap-3 min-w-0" aria-label="会话计数">
+        <span className="flex items-center gap-3 min-w-0" aria-label={t("float.counts")}>
           {SHOWN.map((b) => (
-            <span key={b} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums", counts[b] ? "text-text" : "text-muted")} title={BUCKET_LABEL[b]}>
+            <span key={b} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums", counts[b] ? "text-text" : "text-muted")} title={t(bucketKey(b))}>
               <span className={cn("size-1.5 rounded-full", counts[b] ? DOT[b] : "bg-muted/40")} />
-              {BUCKET_LABEL[b]} {counts[b]}
+              {t(bucketKey(b))} {counts[b]}
             </span>
           ))}
         </span>
         <span className="ml-auto flex items-center gap-0.5">
           {!mini && (
-            <span role="radiogroup" aria-label="显示几条" className="mr-1 inline-flex items-center rounded bg-panel2 p-0.5">
+            <span role="radiogroup" aria-label={t("float.howMany")} className="mr-1 inline-flex items-center rounded bg-panel2 p-0.5">
               {COUNTS.map((c) => (
                 <button key={c} role="radio" aria-checked={prefs.count === c} onClick={() => setPrefs({ ...prefs, count: c })} className={cn("no-drag h-5 px-1.5 rounded-[3px] text-[11px] tabular-nums", prefs.count === c ? "bg-raised text-text" : "text-muted hover:text-text")}>
                   {c}
@@ -108,25 +110,21 @@ export function Float() {
               ))}
             </span>
           )}
-          <IconButton label={mini ? "展开" : "收起"} onClick={() => setPrefs({ ...prefs, mode: mini ? "full" : "mini" })}>
+          <IconButton label={mini ? t("float.expand") : t("float.collapse")} onClick={() => setPrefs({ ...prefs, mode: mini ? "full" : "mini" })}>
             {mini ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
           </IconButton>
-          <IconButton label="回到主窗口" onClick={() => void api.main.show()}>
+          <IconButton label={t("float.backToMain")} onClick={() => void api.main.show()}>
             <Maximize2 size={13} />
           </IconButton>
         </span>
       </div>
       {!mini && (
-        <div role="list" aria-label="浮窗里的会话" className="flex flex-col gap-0.5 p-1.5">
+        <div role="list" aria-label={t("float.list")} className="flex flex-col gap-0.5 p-1.5">
           {rows.map((s) => (
             <FloatRow key={`${s.app}:${s.id}`} s={s} now={now} />
           ))}
-          {!rows.length && <span className="px-1.5 py-1.5 text-muted">{overview ? "没有在等你、待看或在跑的会话。" : "在读…"}</span>}
-          {live.length > rows.length && (
-            <span className="px-1.5 py-1 text-[12px] text-muted">
-              还有 {live.length - rows.length} 个，在主窗口里看
-            </span>
-          )}
+          {!rows.length && <span className="px-1.5 py-1.5 text-muted">{overview ? t("float.empty") : t("float.loading")}</span>}
+          {live.length > rows.length && <span className="px-1.5 py-1 text-[12px] text-muted">{t("float.more", { n: live.length - rows.length })}</span>}
         </div>
       )}
     </div>
@@ -144,17 +142,18 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
 /** One session: the exact state as a dot, the title, how long ago, then reply and jump. Clicking the title jumps. The
  *  row lights up as a rounded card inside the list's 6px frame, like rows in the main window, not edge to edge. */
 function FloatRow({ s, now }: { s: SessionRow; now: number }) {
+  const t = useT();
   const reply = useReply(s, now);
   const heldUp = BUCKET[s.state] === "needs";
   return (
     <div role="listitem" className="rounded-md px-1.5 py-1.5 flex flex-col gap-1.5 hover:bg-panel2">
       <div className="flex items-center gap-2">
-        <span className={cn("size-2 shrink-0 rounded-full", STATE_DOT[s.state])} title={STATE_LABEL[s.state]} />
-        <button type="button" onClick={() => s.open && void api.session.open(s.open)} title={`${STATE_LABEL[s.state]} · ${s.title}${s.detail ? `\n${s.detail}` : ""}`} className="no-drag flex-1 min-w-0 text-left truncate leading-5 hover:underline">
-          {s.title || "（无标题）"}
+        <span className={cn("size-2 shrink-0 rounded-full", STATE_DOT[s.state])} title={t(stateKey(s.state))} />
+        <button type="button" onClick={() => s.open && void api.session.open(s.open)} title={`${t(stateKey(s.state))} · ${s.title}${s.detail ? `\n${s.detail}` : ""}`} className="no-drag flex-1 min-w-0 text-left truncate leading-5 hover:underline">
+          {s.title || t("common.untitled")}
         </button>
         <span className="shrink-0 text-[11px] text-muted whitespace-nowrap tabular-nums">
-          {APP_LABEL[s.app]} · {ago(s.at, now)}
+          {APP_LABEL[s.app]} · {ago(s.at, now, t)}
         </span>
         <span className="shrink-0 flex items-center">{reply.buttons}</span>
       </div>

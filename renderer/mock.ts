@@ -1,4 +1,5 @@
 import type { Project, Ticket } from "@core/types";
+import { resolveLang, type LangPref } from "@core/i18n";
 
 /**
  * Dev-only stand-in for the preload bridge so the renderer can be opened in a plain browser
@@ -78,6 +79,8 @@ export function installMock(): void {
     };
     return { projects: [group(af, "AfterFrame"), group(ch, "chancery-claude"), group(notes, "notes")], sessions, readAt: Date.now(), errors: [] };
   };
+  // The language is the one setting the mock keeps, so the settings page can switch it like the app does.
+  const settings: { theme: string; language: LangPref } = { theme: "system", language: "system" };
   const routes: Record<string, (p: never) => unknown> = {
     "sessions:overview": overview,
     "notices:list": () => [
@@ -91,15 +94,20 @@ export function installMock(): void {
     "daemon:status": () => ({ running: true, paused: false, lastTickAt: now, lastError: null }),
     "agents:claude": () => [{ pid: 1, cwd: "/Users/me/workspace/AfterFrame", kind: "desktop", startedAt: 0, sessionId: "s1", name: "heic 缩略图", status: "busy" }],
     "ax:status": () => ({ available: true, trusted: true, probe: { ok: true, projects: ["AfterFrame"], composer: { usage: "Weekly 45%" } } }),
-    "settings:get": () => ({ theme: "system", pgPort: 54329, pgConnectionString: "", worktreeRoot: "~/.platform/worktrees", claudeBin: "claude", permissionMode: "auto", claudeLaunchMode: "desktop", defaultModel: "", codexBin: "codex", codexModel: "", codexSandbox: "workspace-write", codexLaunchMode: "exec", quickCaptureShortcut: "CommandOrControl+Shift+Space", daemonIntervalMs: 30000, mcpPort: 41710, clerkBackend: "auto", deepseekApiKey: "", deepseekModel: "deepseek-chat", autoTriage: true, auditEnabled: true, workerLowPriority: true, launchAtLogin: false, sessionAlerts: true, floatOnStart: false, floatPosition: null, pg: { embedded: true, connectionString: "postgres://chancery@127.0.0.1:54329/chancery" } }),
+    "settings:get": () => ({ ...settings, lang: resolveLang(settings.language, navigator.languages), pgPort: 54329, pgConnectionString: "", worktreeRoot: "~/.platform/worktrees", claudeBin: "claude", permissionMode: "auto", claudeLaunchMode: "desktop", defaultModel: "", codexBin: "codex", codexModel: "", codexSandbox: "workspace-write", codexLaunchMode: "exec", quickCaptureShortcut: "CommandOrControl+Shift+Space", daemonIntervalMs: 30000, mcpPort: 41710, clerkBackend: "auto", deepseekApiKey: "", deepseekModel: "deepseek-chat", autoTriage: true, auditEnabled: true, workerLowPriority: true, launchAtLogin: false, sessionAlerts: true, floatOnStart: false, floatPosition: null, pg: { embedded: true, connectionString: "postgres://chancery@127.0.0.1:54329/chancery" } }),
   };
   window.chancery = {
     invoke: async (channel, payload) => {
       const fn = routes[channel];
-      if (!fn) return channel === "settings:set" ? { ...(routes["settings:get"]!(undefined as never) as object), ...(payload as object) } : null;
+      if (channel === "settings:set") {
+        Object.assign(settings, payload as object);
+        return { ...(routes["settings:get"]!(undefined as never) as object), ...(payload as object) };
+      }
+      if (!fn) return null;
       return fn(payload as never);
     },
     onChanged: () => () => {},
     onNotices: () => () => {},
+    onLanguage: () => () => {},
   };
 }

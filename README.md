@@ -16,6 +16,7 @@ app 的第一页是「会话」：把 Claude 桌面端和 Codex 应用里的会�
 - Claude 的状态来自桌面端会话索引里的 `postTurnSummary`（带「要你做什么」的一句话）和 `claude agents --json`。
 - Claude 的「完成未读」：索引里的 `lastFocusedAt` 是这条会话上次在桌面端里被调到前面的时间，一轮在这之后跑完（总结是 completed）就算没看过，归入待看；在 Claude 里打开它就清掉；一天没打开降为「超时结束」。Claude 桌面端在前台时，它最后调出的那条会话算正在看着，不算未读。
 - Codex 的状态来自 `~/.codex/state_5.sqlite` 和 `thread_history_1.sqlite`。它没有「在等你回答」的标记，最多判到「完成未读」；完成后一天没在 Codex 里打开过的降为「超时结束」，归入已结束，不再占着待看。
+- 界面、提醒、菜单栏菜单和命令行输出有中文和英文两种，设置页「外观 → 语言」里切，默认跟随 macOS 的语言（中英文之外按英文），切换立即生效、不用重启。字典在 `core/i18n/`（`zh.ts` 是 key 的来源，`en.ts` 由类型保证覆盖每一个 key）；渲染层用 `useT()`，主进程和命令行用 `t(lang, key)`。给 Agent 看的 prompt、MCP 工具说明和守护进程写进工单流水的话还是中文，不在这套字典里。
 - 代码在 `core/overview.ts`（状态判定是纯函数，单测在 `core/overview.test.ts`），界面在 `renderer/pages/Sessions.tsx`。
 - 命令行不需要数据库，app 没开也能用：
 
@@ -142,6 +143,7 @@ codex mcp add chancery --url http://127.0.0.1:41710/mcp
 - `CHANCERY_SCREENSHOT=/path/x.png` 渲染完截图后退出（`CHANCERY_SCREENSHOT_DELAY` 毫秒）
 - `CHANCERY_SESSIONS_HOME` 会话总览从这个目录下读两家的状态，代替真实的 home（测试用）
 - `CHANCERY_NOTICES=panel` 提醒不试系统通知，直接用提醒浮窗
+- `CHANCERY_SESSION_POLL_MS` 会话总览多久读一次两家的状态，默认 10000（测试用 1000）
 - `CHANCERY_OFFSCREEN=1` 提醒浮窗和置顶浮窗都放到屏幕外（测试用）
 - `CHANCERY_AXCTL` 换一个 axctl（测试用假的 `tests/e2e/bin/axctl`）
 - `CHANCERY_NO_EXTERNAL_OPEN=1` 跳转只记日志，不真的打开 Claude、Codex 或终端（测试用）

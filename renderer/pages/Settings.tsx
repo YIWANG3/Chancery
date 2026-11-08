@@ -1,16 +1,24 @@
 import { useEffect, useState, type ReactNode } from "react";
+import type { LangPref } from "@core/i18n";
 import { api, type AppSettings, type AxStatus, type ThemePref } from "../api";
+import { setLang, useT, type T } from "../i18n";
 import { Button, Segmented, Select, SettingGroup, SettingRow, Switch } from "../ui";
 
 type Opt<T extends string> = { value: T; label: string };
 
-const THEMES: Opt<ThemePref>[] = [
-  { value: "system", label: "跟随系统" },
-  { value: "light", label: "浅色" },
-  { value: "dark", label: "深色" },
+const themes = (t: T): Opt<ThemePref>[] => [
+  { value: "system", label: t("theme.system") },
+  { value: "light", label: t("theme.light") },
+  { value: "dark", label: t("theme.dark") },
 ];
-const CLAUDE_LAUNCH: Opt<AppSettings["claudeLaunchMode"]>[] = [
-  { value: "desktop", label: "桌面端" },
+// Each language is named in itself, so a person who cannot read the current one still finds their own.
+const languages = (t: T): Opt<LangPref>[] => [
+  { value: "system", label: t("lang.system") },
+  { value: "zh", label: t("lang.zh") },
+  { value: "en", label: t("lang.en") },
+];
+const claudeLaunch = (t: T): Opt<AppSettings["claudeLaunchMode"]>[] => [
+  { value: "desktop", label: t("launch.desktop") },
   { value: "print", label: "print" },
   { value: "bg", label: "bg" },
 ];
@@ -19,24 +27,23 @@ const PERMISSION: Opt<string>[] = [
   { value: "acceptEdits", label: "acceptEdits" },
   { value: "bypassPermissions", label: "bypassPermissions" },
 ];
-const CODEX_LAUNCH: Opt<AppSettings["codexLaunchMode"]>[] = [
+const codexLaunch = (t: T): Opt<AppSettings["codexLaunchMode"]>[] => [
   { value: "exec", label: "exec" },
-  { value: "desktop", label: "桌面端" },
+  { value: "desktop", label: t("launch.desktop") },
 ];
 const SANDBOX: Opt<AppSettings["codexSandbox"]>[] = [
   { value: "workspace-write", label: "workspace-write" },
   { value: "danger-full-access", label: "danger-full-access" },
   { value: "read-only", label: "read-only" },
 ];
-const CLERK: Opt<AppSettings["clerkBackend"]>[] = [
-  { value: "auto", label: "自动" },
+const clerks = (t: T): Opt<AppSettings["clerkBackend"]>[] => [
+  { value: "auto", label: t("clerk.auto") },
   { value: "deepseek", label: "DeepSeek" },
   { value: "claude", label: "Claude" },
 ];
 
-const RESTART = "重启后生效。";
-
 export function SettingsPage() {
+  const t = useT();
   const [s, setS] = useState<AppSettings | null>(null);
   const [ax, setAx] = useState<AxStatus | null>(null);
   useEffect(() => {
@@ -45,10 +52,14 @@ export function SettingsPage() {
   }, []);
   if (!s) return null;
 
+  const restart = t("settings.restart");
   /** Every control saves on its own; text fields commit on blur or Enter. */
   const set = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     if (s[key] === value) return;
-    setS(await api.settings.set({ [key]: value } as Partial<AppSettings>));
+    const next = await api.settings.set({ [key]: value } as Partial<AppSettings>);
+    setS(next);
+    // The main process tells every window; this one takes the new language at once, without the round trip.
+    setLang(next.lang);
   };
   const text = (key: keyof AppSettings, label: string, opts: { kind?: "text" | "password" | "number"; placeholder?: string } = {}) => (
     <TextField key={key} label={label} kind={opts.kind} placeholder={opts.placeholder} value={String(s[key] ?? "")} onCommit={(v) => void set(key, (opts.kind === "number" ? Number(v) : v) as AppSettings[typeof key])} />
@@ -57,102 +68,105 @@ export function SettingsPage() {
 
   return (
     <div className="px-8 pb-12 flex flex-col gap-10 max-w-[800px]">
-      <SettingGroup title="外观">
-        <SettingRow title="主题" description="跟随系统时和 macOS 的外观一起切换。">
-          <Segmented value={s.theme} onChange={(v) => void set("theme", v)} options={THEMES} />
+      <SettingGroup title={t("settings.appearance")}>
+        <SettingRow title={t("settings.theme")} description={t("settings.themeHint")}>
+          <Segmented value={s.theme} onChange={(v) => void set("theme", v)} options={themes(t)} />
+        </SettingRow>
+        <SettingRow title={t("settings.language")} description={t("settings.languageHint")}>
+          <Segmented value={s.language} onChange={(v) => void set("language", v)} options={languages(t)} />
         </SettingRow>
       </SettingGroup>
 
-      <SettingGroup title="会话">
-        <SettingRow title="会话提醒" description="Claude 或 Codex 的会话停下来等你、出错、跑完时提醒一次，点提醒跳到那个会话。系统不让本应用发通知时，改用屏幕右上角的小浮窗。你正看着这个窗口或那一家的应用时不提醒。">
-          {toggle("sessionAlerts", "会话提醒")}
+      <SettingGroup title={t("settings.sessions")}>
+        <SettingRow title={t("settings.sessionAlerts")} description={t("settings.sessionAlertsHint")}>
+          {toggle("sessionAlerts", t("settings.sessionAlerts"))}
         </SettingRow>
-        <SettingRow title="启动时最小化到浮窗" description="启动后不开主窗口，只在屏幕右上角放一个置顶的小窗，列出在等你、待看和在跑的会话。平时从会话页右上角的按钮或菜单栏图标的菜单里最小化，从浮窗回到主窗口。">
-          {toggle("floatOnStart", "启动时最小化到浮窗")}
+        <SettingRow title={t("settings.floatOnStart")} description={t("settings.floatOnStartHint")}>
+          {toggle("floatOnStart", t("settings.floatOnStart"))}
         </SettingRow>
       </SettingGroup>
 
       <SettingGroup title="Claude">
-        <SettingRow title="claude 命令" description="启动 worker 和书记用的可执行文件，可以是完整路径。">
-          {text("claudeBin", "claude 命令")}
+        <SettingRow title={t("settings.claudeBin")} description={t("settings.claudeBinHint")}>
+          {text("claudeBin", t("settings.claudeBin"))}
         </SettingRow>
-        <SettingRow title="启动方式" description={`桌面端走辅助功能，在 Claude 侧栏里可见；print 和 bg 在后台跑 claude -p。${RESTART}`}>
-          <Segmented value={s.claudeLaunchMode} onChange={(v) => void set("claudeLaunchMode", v)} options={CLAUDE_LAUNCH} />
+        <SettingRow title={t("settings.launchMode")} description={`${t("settings.claudeLaunchHint")}${restart}`}>
+          <Segmented value={s.claudeLaunchMode} onChange={(v) => void set("claudeLaunchMode", v)} options={claudeLaunch(t)} />
         </SettingRow>
-        <SettingRow title="worker 权限" description="后台 worker 的 --permission-mode；bypassPermissions 跳过一切确认。">
-          <Select ariaLabel="worker 权限" value={s.permissionMode} onChange={(v) => void set("permissionMode", v)} options={PERMISSION} />
+        <SettingRow title={t("settings.permission")} description={t("settings.permissionHint")}>
+          <Select ariaLabel={t("settings.permission")} value={s.permissionMode} onChange={(v) => void set("permissionMode", v)} options={PERMISSION} />
         </SettingRow>
-        <SettingRow title="默认模型" description="留空用 CLI 自己的默认。">
-          {text("defaultModel", "默认模型", { placeholder: "CLI 默认" })}
+        <SettingRow title={t("settings.defaultModel")} description={t("settings.defaultModelHint")}>
+          {text("defaultModel", t("settings.defaultModel"), { placeholder: t("settings.cliDefault") })}
         </SettingRow>
       </SettingGroup>
 
       <SettingGroup title="Codex">
-        <SettingRow title="codex 命令" description="启动 Codex worker 用的可执行文件。">
-          {text("codexBin", "codex 命令")}
+        <SettingRow title={t("settings.codexBin")} description={t("settings.codexBinHint")}>
+          {text("codexBin", t("settings.codexBin"))}
         </SettingRow>
-        <SettingRow title="启动方式" description={`exec 在后台跑 codex exec；桌面端走辅助功能，在 Codex app 侧栏里可见。${RESTART}`}>
-          <Segmented value={s.codexLaunchMode} onChange={(v) => void set("codexLaunchMode", v)} options={CODEX_LAUNCH} />
+        <SettingRow title={t("settings.launchMode")} description={`${t("settings.codexLaunchHint")}${restart}`}>
+          <Segmented value={s.codexLaunchMode} onChange={(v) => void set("codexLaunchMode", v)} options={codexLaunch(t)} />
         </SettingRow>
-        <SettingRow title="模型" description="留空用 ~/.codex/config.toml 里的。">
-          {text("codexModel", "模型", { placeholder: "config.toml 的" })}
+        <SettingRow title={t("settings.model")} description={t("settings.codexModelHint")}>
+          {text("codexModel", t("settings.model"), { placeholder: t("settings.fromConfigToml") })}
         </SettingRow>
-        <SettingRow title="沙箱" description="codex exec 的 --sandbox；审计一律 read-only。">
-          <Select ariaLabel="沙箱" value={s.codexSandbox} onChange={(v) => void set("codexSandbox", v)} options={SANDBOX} />
-        </SettingRow>
-      </SettingGroup>
-
-      <SettingGroup title="书记">
-        <SettingRow title="用谁" description="自动：有 DeepSeek key 就用 DeepSeek，否则用 claude -p。">
-          <Segmented value={s.clerkBackend} onChange={(v) => void set("clerkBackend", v)} options={CLERK} />
-        </SettingRow>
-        <SettingRow title="DeepSeek API key" description="整理工单和自动分类都用它。">
-          {text("deepseekApiKey", "DeepSeek API key", { kind: "password" })}
-        </SettingRow>
-        <SettingRow title="DeepSeek 模型">{text("deepseekModel", "DeepSeek 模型")}</SettingRow>
-        <SettingRow title="自动分类收件" description="每轮把收件里的工单判成可派、要设计，或者直接回答。关掉就都由你手点。">
-          {toggle("autoTriage", "自动分类收件")}
+        <SettingRow title={t("settings.sandbox")} description={t("settings.sandboxHint")}>
+          <Select ariaLabel={t("settings.sandbox")} value={s.codexSandbox} onChange={(v) => void set("codexSandbox", v)} options={SANDBOX} />
         </SettingRow>
       </SettingGroup>
 
-      <SettingGroup title="守护进程">
-        <SettingRow title="PR 后审计" description="worker 开了 PR 就起一轮只读审计，最多三轮，过了才进待合并。">
-          {toggle("auditEnabled", "PR 后审计")}
+      <SettingGroup title={t("settings.clerk")}>
+        <SettingRow title={t("settings.clerkBackend")} description={t("settings.clerkBackendHint")}>
+          <Segmented value={s.clerkBackend} onChange={(v) => void set("clerkBackend", v)} options={clerks(t)} />
         </SettingRow>
-        <SettingRow title="worker 走后台 QoS" description={`用 taskpolicy -b 启动，不和你抢 CPU。${RESTART}`}>
-          {toggle("workerLowPriority", "worker 走后台 QoS")}
+        <SettingRow title={t("settings.deepseekKey")} description={t("settings.deepseekKeyHint")}>
+          {text("deepseekApiKey", t("settings.deepseekKey"), { kind: "password" })}
         </SettingRow>
-        <SettingRow title="登录时启动" description="常驻托盘，守护进程随你登录就在。">
-          {toggle("launchAtLogin", "登录时启动")}
-        </SettingRow>
-      </SettingGroup>
-
-      <SettingGroup title="其他">
-        <SettingRow title="worktree 根目录" description="每张工单的 worktree 都建在这下面，按项目分文件夹。" wide>
-          {text("worktreeRoot", "worktree 根目录")}
-        </SettingRow>
-        <SettingRow title="记一条的快捷键" description={`Electron 的快捷键写法。${RESTART}`}>
-          {text("quickCaptureShortcut", "记一条的快捷键")}
-        </SettingRow>
-        <SettingRow title="外部 Postgres" description={`留空用内置的。${RESTART}`} wide>
-          {text("pgConnectionString", "外部 Postgres", { placeholder: "postgres://…" })}
-        </SettingRow>
-        <SettingRow title="MCP 端口" description={RESTART}>
-          {text("mcpPort", "MCP 端口", { kind: "number" })}
+        <SettingRow title={t("settings.deepseekModel")}>{text("deepseekModel", t("settings.deepseekModel"))}</SettingRow>
+        <SettingRow title={t("settings.autoTriage")} description={t("settings.autoTriageHint")}>
+          {toggle("autoTriage", t("settings.autoTriage"))}
         </SettingRow>
       </SettingGroup>
 
-      <SettingGroup title="Claude 桌面端">
-        <SettingRow title="辅助功能授权" description={axDescription(ax)}>
-          {ax && ax.available && !ax.trusted && <Button onClick={() => api.ax.status(true).then(setAx)}>请求授权</Button>}
+      <SettingGroup title={t("settings.daemon")}>
+        <SettingRow title={t("settings.audit")} description={t("settings.auditHint")}>
+          {toggle("auditEnabled", t("settings.audit"))}
+        </SettingRow>
+        <SettingRow title={t("settings.lowPriority")} description={`${t("settings.lowPriorityHint")}${restart}`}>
+          {toggle("workerLowPriority", t("settings.lowPriority"))}
+        </SettingRow>
+        <SettingRow title={t("settings.launchAtLogin")} description={t("settings.launchAtLoginHint")}>
+          {toggle("launchAtLogin", t("settings.launchAtLogin"))}
         </SettingRow>
       </SettingGroup>
 
-      <SettingGroup title="接入">
-        <SettingRow title="数据库" description={s.pg.embedded ? "内置的 Postgres，随 app 启停。" : "外部 Postgres。"} stacked>
+      <SettingGroup title={t("settings.other")}>
+        <SettingRow title={t("settings.worktreeRoot")} description={t("settings.worktreeRootHint")} wide>
+          {text("worktreeRoot", t("settings.worktreeRoot"))}
+        </SettingRow>
+        <SettingRow title={t("settings.captureShortcut")} description={`${t("settings.captureShortcutHint")}${restart}`}>
+          {text("quickCaptureShortcut", t("settings.captureShortcut"))}
+        </SettingRow>
+        <SettingRow title={t("settings.externalPg")} description={`${t("settings.externalPgHint")}${restart}`} wide>
+          {text("pgConnectionString", t("settings.externalPg"), { placeholder: "postgres://…" })}
+        </SettingRow>
+        <SettingRow title={t("settings.mcpPort")} description={restart}>
+          {text("mcpPort", t("settings.mcpPort"), { kind: "number" })}
+        </SettingRow>
+      </SettingGroup>
+
+      <SettingGroup title={t("common.claudeDesktop")}>
+        <SettingRow title={t("settings.axTitle")} description={axDescription(t, ax)}>
+          {ax && ax.available && !ax.trusted && <Button onClick={() => api.ax.status(true).then(setAx)}>{t("settings.requestAx")}</Button>}
+        </SettingRow>
+      </SettingGroup>
+
+      <SettingGroup title={t("settings.integration")}>
+        <SettingRow title={t("settings.database")} description={s.pg.embedded ? t("settings.dbEmbedded") : t("settings.dbExternal")} stacked>
           <Code>{s.pg.connectionString}</Code>
         </SettingRow>
-        <SettingRow title="MCP" description="app 在跑时可用。接进去之后在任何会话里说「提成工单」就行。" stacked>
+        <SettingRow title="MCP" description={t("settings.mcpHint")} stacked>
           <div className="flex flex-col gap-2 w-full">
             <Code>claude mcp add --scope user --transport http chancery http://127.0.0.1:{s.mcpPort}/mcp</Code>
             <Code>codex mcp add chancery --url http://127.0.0.1:{s.mcpPort}/mcp</Code>
@@ -163,12 +177,12 @@ export function SettingsPage() {
   );
 }
 
-function axDescription(ax: AxStatus | null): ReactNode {
-  if (!ax) return "检查中…";
-  if (!ax.available) return <span className="text-error">axctl 不可用：{ax.error}</span>;
-  if (!ax.trusted) return <span className="text-warn">还没有辅助功能授权。系统设置 → 隐私与安全性 → 辅助功能。</span>;
-  if (ax.probe && !ax.probe.ok) return <span className="text-warn">已授权，但读不到桌面端：{ax.probe.error}</span>;
-  return `已授权 · 桌面端列出 ${ax.probe?.projects?.length ?? 0} 个项目${ax.probe?.composer?.usage ? ` · 用量 ${ax.probe.composer.usage}` : ""}`;
+function axDescription(t: T, ax: AxStatus | null): ReactNode {
+  if (!ax) return t("settings.axChecking");
+  if (!ax.available) return <span className="text-error">{t("settings.axUnavailable", { error: ax.error ?? "" })}</span>;
+  if (!ax.trusted) return <span className="text-warn">{t("settings.axNotTrusted")}</span>;
+  if (ax.probe && !ax.probe.ok) return <span className="text-warn">{t("settings.axProbeFailed", { error: ax.probe.error ?? "" })}</span>;
+  return `${t("settings.axOk", { n: ax.probe?.projects?.length ?? 0 })}${ax.probe?.composer?.usage ? ` · ${t("settings.axUsage", { usage: ax.probe.composer.usage })}` : ""}`;
 }
 
 /** Edits locally, commits on blur or Enter, and takes the saved value back when it changes underneath. */

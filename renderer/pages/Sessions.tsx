@@ -4,7 +4,8 @@ import type { Overview, SessionApp, SessionRow } from "@core/overview";
 import { api } from "../api";
 import { cn } from "../cn";
 import { useChanged } from "../hooks";
-import { APP_LABEL, BUCKET, BUCKET_LABEL, ProjectTag, SessionItem, State, WINDOWS, ago, useReply, type Bucket, type ProjectTagProps, type WindowDays } from "../sessionBits";
+import { useT } from "../i18n";
+import { APP_LABEL, BUCKET, ProjectTag, SessionItem, State, ago, bucketKey, useReply, windowOptions, type Bucket, type ProjectTagProps, type WindowDays } from "../sessionBits";
 import { Empty, Segmented, Select } from "../ui";
 
 const BUCKETS = ["needs", "look", "running", "ended"] as const;
@@ -35,6 +36,7 @@ const load = (): Filter => {
  * is waiting on you, and a board with one column per question you would ask of them.
  */
 export function Sessions() {
+  const t = useT();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>(load);
@@ -92,12 +94,12 @@ export function Sessions() {
   }, [inProject]);
   const nameOf = useMemo(() => new Map((overview?.projects ?? []).map((p) => [p.key, p.name])), [overview]);
 
-  if (!overview) return <Empty>{failed ? `读不到会话：${failed}` : "在读两家的会话…"}</Empty>;
+  if (!overview) return <Empty>{failed ? t("sessions.readFailed", { error: failed }) : t("sessions.loading")}</Empty>;
 
   const board = filter.view === "board";
   const rows = !board && filter.bucket ? byBucket[filter.bucket] : inProject;
   // Every row and card carries its project as a tag; clicking the tag narrows the page to that project, or widens it again.
-  const tagOf = (s: SessionRow) => ({ name: nameOf.get(s.projectKey) ?? "其他", active: project === s.projectKey, onClick: () => setFilter({ ...filter, project: project === s.projectKey ? "" : s.projectKey }) });
+  const tagOf = (s: SessionRow) => ({ name: nameOf.get(s.projectKey) ?? t("common.other"), active: project === s.projectKey, onClick: () => setFilter({ ...filter, project: project === s.projectKey ? "" : s.projectKey }) });
 
   return (
     <div className="h-full min-h-0 flex flex-col">
@@ -106,44 +108,44 @@ export function Sessions() {
           value={filter.view}
           onChange={(view) => setFilter({ ...filter, view })}
           options={[
-            { value: "list" as const, label: <List size={15} />, ariaLabel: "列表", title: "列表" },
-            { value: "board" as const, label: <Columns3 size={15} />, ariaLabel: "看板", title: "看板" },
+            { value: "list" as const, label: <List size={15} />, ariaLabel: t("common.list"), title: t("common.list") },
+            { value: "board" as const, label: <Columns3 size={15} />, ariaLabel: t("common.board"), title: t("common.board") },
           ]}
         />
         {!board && (
           <Segmented
             value={filter.bucket}
             onChange={(bucket) => setFilter({ ...filter, bucket })}
-            options={[{ value: "" as const, label: `全部 ${inProject.length}` }, ...BUCKETS.map((b) => ({ value: b, label: `${BUCKET_LABEL[b]} ${byBucket[b].length}` }))]}
+            options={[{ value: "" as const, label: t("sessions.allCount", { n: inProject.length }) }, ...BUCKETS.map((b) => ({ value: b, label: `${t(bucketKey(b))} ${byBucket[b].length}` }))]}
           />
         )}
         {/* Menus, not segmented controls, so the whole bar stays on one line at the default window width. */}
         <Select
-          ariaLabel="哪一家"
+          ariaLabel={t("sessions.whichApp")}
           className="!w-auto"
           value={filter.app}
           onChange={(app) => setFilter({ ...filter, app })}
           options={[
-            { value: "", label: "两家" },
+            { value: "", label: t("sessions.bothApps") },
             { value: "claude", label: "Claude" },
             { value: "codex", label: "Codex" },
           ]}
         />
         <Select
-          ariaLabel="项目"
+          ariaLabel={t("common.project")}
           className="!w-auto max-w-[190px]"
           value={project}
           onChange={(key) => setFilter({ ...filter, project: key })}
-          options={[{ value: "", label: `全部项目 ${inScope.length}` }, ...projects.map((p) => ({ value: p.key, label: `${p.name} ${p.total}${p.needs ? `（等我 ${p.needs}）` : ""}` }))]}
+          options={[{ value: "", label: t("sessions.allProjects", { n: inScope.length }) }, ...projects.map((p) => ({ value: p.key, label: `${p.name} ${p.total}${p.needs ? t("sessions.needsSuffix", { n: p.needs }) : ""}` }))]}
         />
-        <Select ariaLabel="时间范围" className="!w-auto ml-auto" value={filter.days} onChange={(days) => setFilter({ ...filter, days })} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} />
+        <Select ariaLabel={t("sessions.timeRange")} className="!w-auto ml-auto" value={filter.days} onChange={(days) => setFilter({ ...filter, days })} options={windowOptions(t)} />
       </div>
 
       {(failed || overview.errors.length > 0) && (
         <div className="shrink-0 mx-8 mb-4 rounded-md bg-panel2 px-4 py-3 text-[13px] text-warn flex flex-col gap-1">
-          {failed && <span>刷新失败，显示的是上一次读到的：{failed}</span>}
+          {failed && <span>{t("sessions.refreshFailed", { error: failed })}</span>}
           {overview.errors.map((e) => (
-            <span key={e}>读不到：{e}</span>
+            <span key={e}>{t("common.cannotRead", { what: e })}</span>
           ))}
         </div>
       )}
@@ -152,16 +154,16 @@ export function Sessions() {
         <div className="flex-1 min-h-0 overflow-x-auto px-8 pb-6">
           <div className="h-full min-w-[880px] grid grid-cols-4 gap-4">
             {BUCKETS.map((b) => (
-              <section key={b} aria-label={BUCKET_LABEL[b]} className="min-h-0 flex flex-col">
+              <section key={b} aria-label={t(bucketKey(b))} className="min-h-0 flex flex-col">
                 <h2 className="shrink-0 h-8 flex items-center gap-2 text-[13px] text-muted">
-                  <span className="text-text font-medium">{BUCKET_LABEL[b]}</span>
+                  <span className="text-text font-medium">{t(bucketKey(b))}</span>
                   <span className="tabular-nums">{byBucket[b].length}</span>
                 </h2>
-                <div role="list" aria-label={BUCKET_LABEL[b]} className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pb-2">
+                <div role="list" aria-label={t(bucketKey(b))} className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pb-2">
                   {byBucket[b].map((s) => (
                     <SessionCard key={`${s.app}:${s.id}`} s={s} now={now} project={tagOf(s)} />
                   ))}
-                  {!byBucket[b].length && <span className="px-1 py-2 text-[13px] text-muted">没有</span>}
+                  {!byBucket[b].length && <span className="px-1 py-2 text-[13px] text-muted">{t("common.none")}</span>}
                 </div>
               </section>
             ))}
@@ -169,7 +171,7 @@ export function Sessions() {
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-auto px-8 pb-10">
-          {!rows.length && <Empty>{inScope.length ? "没有符合筛选的会话。" : "这段时间里两家都没有会话。"}</Empty>}
+          {!rows.length && <Empty>{inScope.length ? t("sessions.noneMatch") : t("sessions.noneInWindow")}</Empty>}
           <div role="list" className="flex flex-col gap-0.5 -mx-3">
             {rows.map((s) => (
               <SessionItem key={`${s.app}:${s.id}`} s={s} now={now} project={tagOf(s)} />
@@ -182,8 +184,9 @@ export function Sessions() {
 }
 
 /** One session as a card on the board. The column already says which question it answers, so the card leads with
- *  the exact state only where a column holds several (出错 and 卡住 sit with 等我). */
+ *  the exact state only where a column holds several (error and stuck sit with needs-you). */
 function SessionCard({ s, now, project }: { s: SessionRow; now: number; project: ProjectTagProps }) {
+  const t = useT();
   const heldUp = BUCKET[s.state] === "needs";
   const reply = useReply(s, now);
   return (
@@ -191,11 +194,11 @@ function SessionCard({ s, now, project }: { s: SessionRow; now: number; project:
       <div className="flex items-center gap-2 text-[13px]">
         <State state={s.state} basis={s.basis} />
         <span className="ml-auto text-[12px] text-muted tabular-nums whitespace-nowrap" title={new Date(s.at).toLocaleString()}>
-          {APP_LABEL[s.app]} · {ago(s.at, now)}
+          {APP_LABEL[s.app]} · {ago(s.at, now, t)}
         </span>
       </div>
       <span className="leading-5 font-medium line-clamp-2" title={s.title}>
-        {s.title || "（无标题）"}
+        {s.title || t("common.untitled")}
       </span>
       {s.detail && (
         <span className={cn("text-[13px] leading-5 line-clamp-3", heldUp ? "text-text" : "text-muted")} title={s.detail}>

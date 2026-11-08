@@ -8,6 +8,8 @@ describe("explainReplyError", () => {
     expect(explainReplyError("claude", "Claude Desktop did not switch to the session (showing: local_x); nothing was sent")).toBe("Claude 桌面端没有切到这条会话，没有发送。");
     expect(explainReplyError("codex", "the Codex app did not switch to the thread (showing: 别的); nothing was sent")).toBe("Codex 应用没有切到这条会话，没有发送。");
     expect(explainReplyError("codex", "Codex app is not running")).toBe("Codex 应用没有开着，没有发送。");
+    expect(explainReplyError("codex", "Codex app is not running", "en")).toBe("the Codex app is not open; nothing was sent.");
+    expect(explainReplyError("claude", "Claude Desktop did not switch to the session; nothing was sent", "en")).toBe("Claude Desktop did not switch to this session; nothing was sent.");
     expect(explainReplyError("claude", "this process is not trusted for Accessibility")).toContain("辅助功能");
     expect(explainReplyError("claude", "several composers are open (split view); nothing was sent")).toContain("分屏");
   });

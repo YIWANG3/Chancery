@@ -1,20 +1,13 @@
 import type { ReactNode } from "react";
 import { MessageSquare, SquareTerminal } from "lucide-react";
 import type { TicketStatus } from "@core/types";
+import type { MsgKey } from "@core/i18n";
 import { api, type SessionOpen } from "./api";
 import { cn } from "./cn";
+import { useT, type T } from "./i18n";
 
-export const STATUS_LABEL: Record<TicketStatus, string> = {
-  inbox: "收件",
-  "needs-spec": "要设计",
-  ready: "可派",
-  "in-progress": "进行中",
-  review: "待审",
-  "awaiting-merge": "待合并",
-  "needs-human": "等我",
-  blocked: "被挡",
-  done: "完成",
-};
+/** The dictionary key of a ticket status's label; `t(statusKey(s))` is the word on screen. */
+export const statusKey = (status: TicketStatus): MsgKey => `ticket.${status}`;
 
 export const STATUS_TONE: Record<TicketStatus, string> = {
   inbox: "text-muted",
@@ -42,10 +35,11 @@ const STATUS_DOT: Record<TicketStatus, string> = {
 
 /** Status is always a dot plus its label, never color alone. */
 export function Status({ status, className }: { status: TicketStatus; className?: string }) {
+  const t = useT();
   return (
     <span className={cn("inline-flex items-center gap-2 whitespace-nowrap", STATUS_TONE[status], className)}>
       <span className={cn("size-2 rounded-full", STATUS_DOT[status])} />
-      {STATUS_LABEL[status]}
+      {t(statusKey(status))}
     </span>
   );
 }
@@ -167,21 +161,25 @@ export function SettingGroup({ title, children }: { title: ReactNode; children: 
 
 /** Where a session can be reopened, named by the tool you land in. New targets (a Cursor or Antigravity session)
  *  add a row here and a kind to SessionOpen; nothing else in the UI needs to know. */
-const SESSION_TARGET: Record<string, { label: string; action: string; Icon: typeof MessageSquare }> = {
-  desktop: { label: "Claude 桌面端", action: "在 Claude 桌面端打开这个会话", Icon: MessageSquare },
-  "codex-app": { label: "Codex 应用", action: "在 Codex 应用里打开这个会话", Icon: MessageSquare },
-  "terminal:claude": { label: "Claude CLI", action: "在终端里续聊：claude --resume", Icon: SquareTerminal },
-  "terminal:codex": { label: "Codex CLI", action: "在终端里续聊：codex resume", Icon: SquareTerminal },
+const SESSION_TARGET: Record<string, { label: (t: T) => string; action: MsgKey; Icon: typeof MessageSquare }> = {
+  desktop: { label: (t) => t("common.claudeDesktop"), action: "session.openIn.claude", Icon: MessageSquare },
+  "codex-app": { label: (t) => t("common.codexApp"), action: "session.openIn.codex", Icon: MessageSquare },
+  // Tool names are the same in every language.
+  "terminal:claude": { label: () => "Claude CLI", action: "session.openTerminal.claude", Icon: SquareTerminal },
+  "terminal:codex": { label: () => "Codex CLI", action: "session.openTerminal.codex", Icon: SquareTerminal },
 };
 
 /** Jumps to the worker's conversation. Always icon plus the target's name, so a card says which tool it opens.
  *  Renders nothing when there is nowhere to go, so callers can place it unconditionally. Stops the click so a card
  *  underneath does not also open. */
 export function OpenSession({ open, size = "sm", className }: { open: SessionOpen | null | undefined; size?: "sm" | "md"; className?: string }) {
+  const t = useT();
   if (!open) return null;
   const target = SESSION_TARGET[open.kind === "terminal" ? `terminal:${open.bin}` : open.kind];
   if (!target) return null;
-  const { label, action, Icon } = target;
+  const { Icon } = target;
+  const label = target.label(t);
+  const action = t(target.action);
   const go = (e: { stopPropagation: () => void }) => {
     e.stopPropagation();
     void api.session.open(open);

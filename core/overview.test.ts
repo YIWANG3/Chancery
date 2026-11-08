@@ -72,6 +72,7 @@ describe("classifyCodex", () => {
   });
   it("is stuck when an in-progress turn has been silent past the threshold", () => {
     expect(classifyCodex(facts({ turnStatus: "inProgress", lastActivityAt: now - CODEX_STALE_MS - 60_000 }), now)).toMatchObject({ state: "stuck", detail: "31 分钟没有动静" });
+    expect(classifyCodex(facts({ turnStatus: "inProgress", lastActivityAt: now - CODEX_STALE_MS - 60_000 }), now, "en")).toMatchObject({ state: "stuck", detail: "No activity for 31 minutes" });
   });
   it("carries the failure message", () => {
     expect(classifyCodex(facts({ turnStatus: "failed", errorJson: '{"message":"You\'ve hit your usage limit."}' }), now)).toMatchObject({ state: "error", detail: "You've hit your usage limit." });
@@ -148,5 +149,6 @@ describe("groupByProject", () => {
   it("names the catch-all group and gives it no directory", () => {
     const { projects } = groupByProject([row({ projectKey: OTHER_PROJECT_KEY })]);
     expect(projects[0]).toMatchObject({ name: "其他", dir: null });
+    expect(groupByProject([row({ projectKey: OTHER_PROJECT_KEY })], "en").projects[0]).toMatchObject({ name: "Other" });
   });
 });

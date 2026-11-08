@@ -100,6 +100,8 @@ function makeEnv(workerIndex: number): TestEnv {
     JSON.stringify(
       {
         theme: "light",
+        // The specs read the interface in Chinese whatever language the machine running them is in.
+        language: "zh",
         pgPort,
         mcpPort,
         worktreeRoot,

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { Project, TicketStatus } from "@core/types";
 import { api, type TicketDraft } from "../api";
+import { useT } from "../i18n";
 import { Button } from "../ui";
 
 /** Quick capture: write freely, let the clerk shape it, confirm. ⌘⏎ saves as written, Esc hides. */
 export function Capture() {
+  const t = useT();
   const [projects, setProjects] = useState<Project[]>([]);
   const [text, setText] = useState("");
   const [draft, setDraft] = useState<(TicketDraft & { backend: string }) | null>(null);
@@ -83,53 +85,53 @@ export function Capture() {
         <>
           <textarea
             ref={input}
-            aria-label="随便写"
+            aria-label={t("capture.freeWrite")}
             className="no-drag flex-1 resize-none text-[15px] leading-relaxed bg-transparent p-0 rounded-none"
-            placeholder="随便写：要做什么、为什么、怎么算做完。回车换行，「整理」交给书记，⌘⏎ 原样存"
+            placeholder={t("capture.placeholder")}
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
           <div className="flex items-center gap-2.5 text-[13px] text-muted">
             <Button kind="primary" disabled={!text.trim() || busy} onClick={organize}>
-              {busy ? "整理中…" : "整理"}
+              {busy ? t("capture.organizing") : t("capture.organize")}
             </Button>
             <Button disabled={!text.trim() || busy} onClick={saveRaw}>
-              原样存
+              {t("capture.saveRaw")}
             </Button>
             {error && <span className="text-error truncate">{error}</span>}
-            <span className="ml-auto">{saved ? `已记为 #${saved}` : "Esc 关闭"}</span>
+            <span className="ml-auto">{saved ? t("capture.saved", { n: saved }) : t("capture.escClose")}</span>
           </div>
         </>
       ) : (
         <>
           <div className="no-drag flex flex-col gap-2 flex-1 min-h-0 overflow-auto">
-            <input aria-label="标题" className="text-[15px] font-medium bg-transparent px-0 rounded-none" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
-            <textarea aria-label="正文" className="flex-1 min-h-[60px] resize-none text-[13.5px] leading-relaxed bg-transparent px-0 rounded-none" value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
+            <input aria-label={t("common.title")} className="text-[15px] font-medium bg-transparent px-0 rounded-none" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+            <textarea aria-label={t("common.body")} className="flex-1 min-h-[60px] resize-none text-[13.5px] leading-relaxed bg-transparent px-0 rounded-none" value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
             <div className="flex gap-2.5 items-center text-[13px]">
-              <select aria-label="项目" className="h-8 min-h-0 py-0" value={draft.projectId ?? ""} onChange={(e) => setDraft({ ...draft, projectId: e.target.value || null })}>
-                <option value="">选项目</option>
+              <select aria-label={t("common.project")} className="h-8 min-h-0 py-0" value={draft.projectId ?? ""} onChange={(e) => setDraft({ ...draft, projectId: e.target.value || null })}>
+                <option value="">{t("capture.pickProject")}</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
                 ))}
               </select>
-              <select aria-label="类型" className="h-8 min-h-0 py-0" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as TicketDraft["kind"] })}>
+              <select aria-label={t("common.kind")} className="h-8 min-h-0 py-0" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as TicketDraft["kind"] })}>
                 {["bug", "feature", "chore", "marketing", "question", "release"].map((k) => (
                   <option key={k}>{k}</option>
                 ))}
               </select>
-              <select aria-label="优先级" className="h-8 min-h-0 py-0" value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) })}>
+              <select aria-label={t("common.priority")} className="h-8 min-h-0 py-0" value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) })}>
                 {[1, 2, 3, 4].map((p) => (
                   <option key={p} value={p}>
                     P{p}
                   </option>
                 ))}
               </select>
-              <select aria-label="初始状态" className="h-8 min-h-0 py-0" value={status} onChange={(e) => setStatus(e.target.value as TicketStatus)}>
-                <option value="inbox">先放收件</option>
-                <option value="ready">直接派</option>
-                <option value="needs-spec">要设计</option>
+              <select aria-label={t("common.initialStatus")} className="h-8 min-h-0 py-0" value={status} onChange={(e) => setStatus(e.target.value as TicketStatus)}>
+                <option value="inbox">{t("tickets.initial.inbox")}</option>
+                <option value="ready">{t("capture.initial.ready")}</option>
+                <option value="needs-spec">{t("tickets.initial.needs-spec")}</option>
               </select>
               <span className="text-muted truncate ml-auto" title={draft.reason}>
                 {draft.backend} · {draft.reason}
@@ -138,10 +140,10 @@ export function Capture() {
           </div>
           <div className="flex items-center gap-2.5 text-[13px] text-muted">
             <Button kind="primary" disabled={!draft.projectId || !draft.title.trim()} onClick={saveDraft}>
-              保存
+              {t("capture.save")}
             </Button>
-            <Button onClick={() => setDraft(null)}>改原话</Button>
-            <span className="ml-auto">⌘⏎ 保存 · Esc 返回</span>
+            <Button onClick={() => setDraft(null)}>{t("capture.editOriginal")}</Button>
+            <span className="ml-auto">{t("capture.footer")}</span>
           </div>
         </>
       )}

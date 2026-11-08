@@ -14,6 +14,7 @@ import { desktopIndexRoot, type SessionOpen } from "./claude/desktopIndex.js";
 import { listClaudeAgents } from "./claude/sessions.js";
 import { run } from "./util/run.js";
 import { sqliteJson, sqlQuote } from "./util/sqlite.js";
+import { t as say, type Lang } from "./i18n/index.js";
 
 export type SessionApp = "claude" | "codex";
 
@@ -106,6 +107,8 @@ export interface ClaudeClassifyContext {
   now?: number;
   /** The session is the one in front in Claude Desktop right now: whatever lands in it is being seen. */
   watched?: boolean;
+  /** The language `detail` is written in. Chinese, the language these strings were first written in, unless said. */
+  lang?: Lang;
 }
 
 export function classifyClaude(entry: Record<string, unknown>, liveStatus: string | undefined, ctx: ClaudeClassifyContext = {}): SessionVerdict {
@@ -129,7 +132,7 @@ export function classifyClaude(entry: Record<string, unknown>, liveStatus: strin
   const activity = num(entry.lastActivityAt);
   if (focused && activity > focused && !ctx.watched) {
     const idle = (ctx.now ?? Date.now()) - activity;
-    if (idle > UNREAD_EXPIRE_MS) return { state: "expired", detail: `完成后 ${Math.floor(idle / 86_400_000)} 天没打开`, basis: `${basis} + unopened, expired`, turn };
+    if (idle > UNREAD_EXPIRE_MS) return { state: "expired", detail: say(ctx.lang ?? "zh", "overview.expiredDetail", { n: Math.floor(idle / 86_400_000) }), basis: `${basis} + unopened, expired`, turn };
     return { state: "unread", detail: status, basis: `${basis} + unopened`, turn };
   }
   return { state: "done", detail: status, basis, turn };
@@ -161,19 +164,19 @@ function codexErrorMessage(errorJson: string | null): string {
  * "blocked on a question": a finished turn that asked something and one that simply finished look the same, so the
  * most this can say is "finished and not opened since".
  */
-export function classifyCodex(t: CodexThreadFacts, now: number): SessionVerdict {
+export function classifyCodex(t: CodexThreadFacts, now: number, lang: Lang = "zh"): SessionVerdict {
   const basis = t.turnStatus ? `thread_turns.${t.turnStatus}` : "no turn";
   const turn = t.turnOrdinal === null ? "" : String(t.turnOrdinal);
   if (t.turnStatus === "inProgress") {
     const idle = now - t.lastActivityAt;
-    if (idle > CODEX_STALE_MS) return { state: "stuck", detail: `${Math.round(idle / 60_000)} 分钟没有动静`, basis, turn };
+    if (idle > CODEX_STALE_MS) return { state: "stuck", detail: say(lang, "overview.stuckDetail", { n: Math.round(idle / 60_000) }), basis, turn };
     return { state: "running", detail: "", basis, turn: "" };
   }
   if (t.turnStatus === "failed") return { state: "error", detail: codexErrorMessage(t.errorJson), basis, turn };
   if (t.turnStatus === "interrupted") return { state: "interrupted", detail: "", basis, turn };
   if (t.turnStatus === "completed" && t.unread) {
     const idle = now - t.lastActivityAt;
-    if (idle > UNREAD_EXPIRE_MS) return { state: "expired", detail: `完成后 ${Math.floor(idle / 86_400_000)} 天没打开`, basis: `${basis} + unread, expired`, turn };
+    if (idle > UNREAD_EXPIRE_MS) return { state: "expired", detail: say(lang, "overview.expiredDetail", { n: Math.floor(idle / 86_400_000) }), basis: `${basis} + unread, expired`, turn };
     return { state: "unread", detail: "", basis: `${basis} + unread`, turn };
   }
   return { state: "done", detail: "", basis, turn };
@@ -215,14 +218,14 @@ export async function projectKeyFor(cwd: string): Promise<string> {
 
 type Unplaced = Omit<SessionRow, "projectKey">;
 
-async function readClaude(home: string, claudeBin: string, since: number, now: number, claudeInFront: boolean, errors: string[]): Promise<Unplaced[]> {
+async function readClaude(home: string, claudeBin: string, since: number, now: number, claudeInFront: boolean, lang: Lang, errors: string[]): Promise<Unplaced[]> {
   const root = desktopIndexRoot(home);
   if (!(await isDirectory(root))) return [];
   const live = new Map<string, { status: string; startedAt: number }>();
   try {
     for (const a of await listClaudeAgents(claudeBin)) live.set(a.sessionId, { status: a.status, startedAt: num(a.startedAt) });
   } catch (err) {
-    errors.push(`claude agents：${err instanceof Error ? err.message : String(err)}（Claude 的会话不会显示为运行中）`);
+    errors.push(say(lang, "overview.err.claudeAgents", { error: err instanceof Error ? err.message : String(err) }));
   }
   const found: Array<{ entry: Record<string, unknown>; agent: { status: string; startedAt: number } | undefined; id: string; at: number }> = [];
   for (const org of await readdir(root).catch(() => [] as string[])) {
@@ -255,7 +258,7 @@ async function readClaude(home: string, claudeBin: string, since: number, now: n
     at,
     cwd: str(entry.originCwd) || str(entry.cwd),
     open: { kind: "desktop", desktopSessionId: id },
-    ...classifyClaude(entry, agent?.status, { now, watched: watched?.id === id }),
+    ...classifyClaude(entry, agent?.status, { now, watched: watched?.id === id, lang }),
   }));
 }
 
@@ -268,7 +271,7 @@ interface CodexThreadRow {
   unread: number;
 }
 
-async function readCodex(home: string, since: number, includeExec: boolean, now: number, errors: string[]): Promise<Unplaced[]> {
+async function readCodex(home: string, since: number, includeExec: boolean, now: number, lang: Lang, errors: string[]): Promise<Unplaced[]> {
   const stateDb = join(home, ".codex", "state_5.sqlite");
   const historyDb = join(home, ".codex", "thread_history_1.sqlite");
   if (!(await stat(stateDb).catch(() => null))) return [];
@@ -282,7 +285,7 @@ async function readCodex(home: string, since: number, includeExec: boolean, now:
         WHERE t.archived = 0 AND ${recency} >= ${Math.floor(since)}${includeExec ? "" : " AND t.source != 'exec'"}`,
     );
   } catch (err) {
-    errors.push(`Codex 的线程库：${err instanceof Error ? err.message : String(err)}`);
+    errors.push(say(lang, "overview.err.codexThreads", { error: err instanceof Error ? err.message : String(err) }));
     return [];
   }
   if (!threads.length) return [];
@@ -300,7 +303,7 @@ async function readCodex(home: string, since: number, includeExec: boolean, now:
     for (const r of turnRows) turns.set(r.thread_id, r);
     for (const r of itemRows) lastItem.set(r.thread_id, num(r.at));
   } catch (err) {
-    errors.push(`Codex 的历史库：${err instanceof Error ? err.message : String(err)}（Codex 的状态可能不准）`);
+    errors.push(say(lang, "overview.err.codexHistory", { error: err instanceof Error ? err.message : String(err) }));
   }
   return threads.map((t) => {
     const at = num(t.at);
@@ -312,7 +315,7 @@ async function readCodex(home: string, since: number, includeExec: boolean, now:
       at,
       cwd: str(t.cwd),
       open: { kind: "codex-app" as const, threadId: t.id },
-      ...classifyCodex({ turnStatus: turn?.status ?? null, turnOrdinal: turn?.ordinal ?? null, errorJson: turn?.error_json ?? null, unread: Boolean(t.unread), lastActivityAt: Math.max(at, lastItem.get(t.id) ?? 0) }, now),
+      ...classifyCodex({ turnStatus: turn?.status ?? null, turnOrdinal: turn?.ordinal ?? null, errorJson: turn?.error_json ?? null, unread: Boolean(t.unread), lastActivityAt: Math.max(at, lastItem.get(t.id) ?? 0) }, now, lang),
     };
   });
 }
@@ -327,14 +330,14 @@ const compareSessions = (a: SessionRow, b: SessionRow): number =>
 
 /** Sorts sessions (what needs a person first, newest first within a state) and folds them into project groups
  *  (most held-up first, then most running, then most recent). */
-export function groupByProject(rows: SessionRow[]): Pick<Overview, "projects" | "sessions"> {
+export function groupByProject(rows: SessionRow[], lang: Lang = "zh"): Pick<Overview, "projects" | "sessions"> {
   const sessions = [...rows].sort(compareSessions);
   const byKey = new Map<string, ProjectGroup>();
   for (const s of sessions) {
     let g = byKey.get(s.projectKey);
     if (!g) {
       const other = s.projectKey === OTHER_PROJECT_KEY;
-      g = { key: s.projectKey, name: other ? "其他" : basename(s.projectKey) || s.projectKey, dir: other ? null : s.projectKey, apps: [], sessions: 0, counts: zeroCounts(), lastAt: 0 };
+      g = { key: s.projectKey, name: other ? say(lang, "common.other") : basename(s.projectKey) || s.projectKey, dir: other ? null : s.projectKey, apps: [], sessions: 0, counts: zeroCounts(), lastAt: 0 };
       byKey.set(s.projectKey, g);
     }
     g.sessions += 1;
@@ -360,21 +363,24 @@ export interface OverviewOptions {
   /** Claude Desktop is the app in front: the session it shows is being watched, so a reply landing there is seen,
    *  not "finished and unopened". */
   claudeInFront?: boolean;
+  /** The language of `detail`, the catch-all group's name and the errors. Chinese unless said. */
+  lang?: Lang;
 }
 
 export async function buildOverview(opts: OverviewOptions = {}): Promise<Overview> {
   const home = opts.home ?? homedir();
   const now = opts.now ?? Date.now();
+  const lang = opts.lang ?? "zh";
   const since = now - (opts.days ?? 14) * 86_400_000;
   const errors: string[] = [];
   const [claude, codex] = await Promise.all([
-    readClaude(home, opts.claudeBin ?? "claude", since, now, opts.claudeInFront ?? false, errors).catch((err) => {
-      errors.push(`Claude 桌面端的会话索引：${err instanceof Error ? err.message : String(err)}`);
+    readClaude(home, opts.claudeBin ?? "claude", since, now, opts.claudeInFront ?? false, lang, errors).catch((err) => {
+      errors.push(say(lang, "overview.err.claudeIndex", { error: err instanceof Error ? err.message : String(err) }));
       return [] as Unplaced[];
     }),
-    readCodex(home, since, opts.includeExec ?? false, now, errors),
+    readCodex(home, since, opts.includeExec ?? false, now, lang, errors),
   ]);
   const placed = await Promise.all([...claude, ...codex].map(async (s): Promise<SessionRow> => ({ ...s, projectKey: await projectKeyFor(s.cwd) })));
   const rows = opts.includeGone ? placed : placed.filter((s) => s.projectKey !== OTHER_PROJECT_KEY);
-  return { ...groupByProject(rows), readAt: now, errors };
+  return { ...groupByProject(rows, lang), readAt: now, errors };
 }

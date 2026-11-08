@@ -5,6 +5,7 @@ import type { DaemonStatus } from "@core/daemon";
 import type { DiscoveredProject } from "@core/discover";
 import type { TicketDraft } from "@core/clerk";
 import type { Overview } from "@core/overview";
+import type { Lang, LangPref } from "@core/i18n";
 export type { TicketDraft };
 export type { DiscoveredProject };
 
@@ -14,6 +15,7 @@ declare global {
       invoke: (channel: string, payload?: unknown) => Promise<unknown>;
       onChanged: (cb: () => void) => () => void;
       onNotices: (cb: () => void) => () => void;
+      onLanguage: (cb: (lang: string) => void) => () => void;
     };
   }
 }
@@ -34,6 +36,10 @@ export type ThemePref = "system" | "light" | "dark";
 
 export interface AppSettings {
   theme: ThemePref;
+  /** What was chosen: a language or the system's. */
+  language: LangPref;
+  /** The language that choice comes out as right now, resolved by the main process. */
+  lang: Lang;
   pgPort: number;
   pgConnectionString: string;
   worktreeRoot: string;
@@ -113,7 +119,7 @@ export const api = {
   ax: { status: (prompt?: boolean) => call<AxStatus>("ax:status", { prompt }) },
   settings: {
     get: () => call<AppSettings>("settings:get"),
-    set: (patch: Partial<AppSettings>) => call<AppSettings>("settings:set", patch),
+    set: (patch: Partial<Omit<AppSettings, "lang" | "pg">>) => call<AppSettings>("settings:set", patch),
   },
   shell: {
     open: (url: string) => call<void>("shell:open", { url }),
@@ -142,4 +148,5 @@ export const api = {
     onChange: (cb: () => void) => window.chancery.onNotices(cb),
   },
   onChanged: (cb: () => void) => window.chancery.onChanged(cb),
+  onLanguage: (cb: (lang: string) => void) => window.chancery.onLanguage(cb),
 };

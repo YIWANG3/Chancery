@@ -6,20 +6,22 @@ import { TICKET_STATUSES } from "@core/types";
 import { api } from "../api";
 import { cn } from "../cn";
 import { fmtTime, useChanged } from "../hooks";
-import { Button, Empty, OpenSession, PRIORITY_LABEL, Segmented, Status, STATUS_LABEL, STATUS_TONE } from "../ui";
+import { useT, type T } from "../i18n";
+import { Button, Empty, OpenSession, PRIORITY_LABEL, Segmented, Status, statusKey, STATUS_TONE } from "../ui";
 import { TicketDrawer } from "../TicketDrawer";
 
 export const NEEDS_ME: TicketStatus[] = ["needs-human", "awaiting-merge", "needs-spec"];
 const ACTIVE: TicketStatus[] = ["inbox", "needs-spec", "ready", "in-progress", "review", "awaiting-merge", "needs-human", "blocked"];
 
-const PRESETS: Array<{ key: string; label: string; statuses: TicketStatus[] }> = [
-  { key: "me", label: "等我", statuses: NEEDS_ME },
-  { key: "active", label: "未完成", statuses: ACTIVE },
-  { key: "all", label: "全部", statuses: [...TICKET_STATUSES] },
+const presets = (t: T): Array<{ key: string; label: string; statuses: TicketStatus[] }> => [
+  { key: "me", label: t("ticket.needs-human"), statuses: NEEDS_ME },
+  { key: "active", label: t("tickets.presetActive"), statuses: ACTIVE },
+  { key: "all", label: t("common.all"), statuses: [...TICKET_STATUSES] },
 ];
 
 const COLUMNS: TicketStatus[][] = [["inbox", "needs-spec"], ["ready"], ["in-progress"], ["review", "awaiting-merge"], ["needs-human", "blocked"], ["done"]];
-const COLUMN_TITLE = ["收件", "可派", "进行中", "待审 / 待合并", "等我 / 被挡", "完成"];
+/** A column's heading: the statuses it holds, where two share one. */
+const columnTitle = (t: T, i: number): string => [t("ticket.inbox"), t("ticket.ready"), t("ticket.in-progress"), `${t("ticket.review")} / ${t("ticket.awaiting-merge")}`, `${t("ticket.needs-human")} / ${t("ticket.blocked")}`, t("ticket.done")][i] ?? "";
 
 interface Filter {
   projectId: string;
@@ -39,6 +41,7 @@ const load = (): Filter => {
 };
 
 export function Tickets() {
+  const t = useT();
   const [projects, setProjects] = useState<Project[]>([]);
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [filter, setFilter] = useState<Filter>(load);
@@ -71,6 +74,7 @@ export function Tickets() {
   const set = (patch: Partial<Filter>) => setFilter((f) => ({ ...f, ...patch }));
   const toggleStatus = (s: TicketStatus) => set({ statuses: filter.statuses.includes(s) ? filter.statuses.filter((x) => x !== s) : [...filter.statuses, s] });
   const sameSet = (a: TicketStatus[], b: TicketStatus[]) => a.length === b.length && a.every((x) => b.includes(x));
+  const PRESETS = presets(t);
   const preset = PRESETS.find((p) => sameSet(filter.statuses, p.statuses))?.key ?? "custom";
 
   if (!projects.length)
@@ -78,11 +82,11 @@ export function Tickets() {
       <Empty
         action={
           <Button kind="primary" onClick={() => (location.hash = "/projects")}>
-            去注册项目
+            {t("tickets.goRegister")}
           </Button>
         }
       >
-        还没有项目。先注册一个 git 目录，工单才有地方落。
+        {t("tickets.noProjects")}
       </Empty>
     );
 
@@ -90,7 +94,7 @@ export function Tickets() {
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-3 px-8 pb-4">
         <select value={filter.projectId} onChange={(e) => set({ projectId: e.target.value })} className="h-9 py-0 shrink-0">
-          <option value="">全部项目</option>
+          <option value="">{t("tickets.allProjects")}</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -113,19 +117,19 @@ export function Tickets() {
             ),
           }))}
         />
-        <input value={filter.q} onChange={(e) => set({ q: e.target.value })} placeholder="搜标题、正文、#号" className="h-9 py-0 flex-1 min-w-[120px] max-w-[260px]" />
+        <input value={filter.q} onChange={(e) => set({ q: e.target.value })} placeholder={t("tickets.search")} className="h-9 py-0 flex-1 min-w-[120px] max-w-[260px]" />
         <Segmented
           className="ml-auto"
           value={filter.view}
           onChange={(view) => set({ view })}
           options={[
-            { value: "list", label: <List size={16} />, ariaLabel: "列表", title: "列表" },
-            { value: "board", label: <LayoutGrid size={16} />, ariaLabel: "看板", title: "看板" },
+            { value: "list", label: <List size={16} />, ariaLabel: t("common.list"), title: t("common.list") },
+            { value: "board", label: <LayoutGrid size={16} />, ariaLabel: t("common.board"), title: t("common.board") },
           ]}
         />
         <Button kind="primary" onClick={() => setAdding(true)}>
           <Plus size={15} />
-          新工单
+          {t("tickets.new")}
         </Button>
       </div>
       <div className="flex gap-1.5 px-8 pb-4 overflow-x-auto">
@@ -134,7 +138,7 @@ export function Tickets() {
           const n = tickets.filter((t) => t.status === s && inProject(t)).length;
           return (
             <button key={s} role="checkbox" aria-checked={on} onClick={() => toggleStatus(s)} className={cn("h-7 px-2.5 rounded-md text-[12.5px] whitespace-nowrap tabular-nums", on ? cn("bg-panel2", STATUS_TONE[s]) : "text-muted/60 hover:text-muted")}>
-              {STATUS_LABEL[s]}
+              {t(statusKey(s))}
               {n > 0 && <span className="ml-1.5 opacity-70">{n}</span>}
             </button>
           );
@@ -157,7 +161,8 @@ export function Tickets() {
 const STATUS_ORDER: TicketStatus[] = ["needs-human", "awaiting-merge", "needs-spec", "review", "in-progress", "ready", "blocked", "inbox", "done"];
 
 function ListView({ tickets, byId, showProject, onOpen }: { tickets: TicketRow[]; byId: Map<string, Project>; showProject: boolean; onOpen: (id: string) => void }) {
-  if (!tickets.length) return <Empty>这个筛选下没有工单。</Empty>;
+  const t = useT();
+  if (!tickets.length) return <Empty>{t("tickets.noneMatch")}</Empty>;
   const sorted = [...tickets].sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || a.priority - b.priority || b.updated_at.localeCompare(a.updated_at));
   const groups: Array<{ status: TicketStatus; items: TicketRow[] }> = [];
   for (const t of sorted) {
@@ -192,6 +197,7 @@ function ListView({ tickets, byId, showProject, onOpen }: { tickets: TicketRow[]
 }
 
 function BoardView({ tickets, byId, showProject, onOpen }: { tickets: TicketRow[]; byId: Map<string, Project>; showProject: boolean; onOpen: (id: string) => void }) {
+  const t = useT();
   return (
     <div className="flex gap-4 px-8 pb-8 h-full min-w-max">
       {COLUMNS.map((statuses, i) => {
@@ -199,7 +205,7 @@ function BoardView({ tickets, byId, showProject, onOpen }: { tickets: TicketRow[
         return (
           <div key={i} className="w-[280px] shrink-0 flex flex-col bg-app rounded-lg">
             <div className="px-4 h-11 flex items-center text-[13px] text-muted">
-              {COLUMN_TITLE[i]}
+              {columnTitle(t, i)}
               <span className="ml-auto tabular-nums">{items.length}</span>
             </div>
             <div className="flex-1 overflow-y-auto px-2 pb-2 flex flex-col gap-2">
@@ -247,6 +253,7 @@ function Clickable({ onClick, className, children }: { onClick: () => void; clas
 }
 
 function NewTicket({ projects, defaultProject, onClose }: { projects: Project[]; defaultProject: string; onClose: () => void }) {
+  const t = useT();
   const [projectId, setProjectId] = useState(defaultProject);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -260,36 +267,36 @@ function NewTicket({ projects, defaultProject, onClose }: { projects: Project[];
   };
   return (
     <div className="fixed inset-0 z-modal bg-overlay flex items-start justify-center pt-[12vh]" onClick={onClose} onKeyDown={(e) => e.key === "Escape" && onClose()}>
-      <div role="dialog" aria-label="新工单" className="w-[620px] bg-panel border border-line rounded-xl shadow-2xl p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
-        <input autoFocus aria-label="标题" placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit()} className="text-[15px]" />
-        <textarea aria-label="正文" placeholder="正文，可空" rows={6} value={body} onChange={(e) => setBody(e.target.value)} />
+      <div role="dialog" aria-label={t("tickets.new")} className="w-[620px] bg-panel border border-line rounded-xl shadow-2xl p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+        <input autoFocus aria-label={t("common.title")} placeholder={t("common.title")} value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit()} className="text-[15px]" />
+        <textarea aria-label={t("common.body")} placeholder={t("tickets.bodyPlaceholder")} rows={6} value={body} onChange={(e) => setBody(e.target.value)} />
         <div className="flex gap-2.5">
-          <select aria-label="项目" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+          <select aria-label={t("common.project")} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
           </select>
-          <select aria-label="类型" value={kind} onChange={(e) => setKind(e.target.value as Ticket["kind"])}>
+          <select aria-label={t("common.kind")} value={kind} onChange={(e) => setKind(e.target.value as Ticket["kind"])}>
             {["bug", "feature", "chore", "marketing", "question", "release"].map((k) => (
               <option key={k}>{k}</option>
             ))}
           </select>
-          <select aria-label="优先级" value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
+          <select aria-label={t("common.priority")} value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
             {[1, 2, 3, 4].map((p) => (
               <option key={p} value={p}>
                 P{p}
               </option>
             ))}
           </select>
-          <select aria-label="初始状态" value={status} onChange={(e) => setStatus(e.target.value as TicketStatus)}>
-            <option value="inbox">先放收件</option>
-            <option value="ready">直接可派</option>
-            <option value="needs-spec">要设计</option>
+          <select aria-label={t("common.initialStatus")} value={status} onChange={(e) => setStatus(e.target.value as TicketStatus)}>
+            <option value="inbox">{t("tickets.initial.inbox")}</option>
+            <option value="ready">{t("tickets.initial.ready")}</option>
+            <option value="needs-spec">{t("tickets.initial.needs-spec")}</option>
           </select>
           <Button kind="primary" onClick={submit} className="ml-auto">
-            建立
+            {t("tickets.create")}
           </Button>
         </div>
       </div>

@@ -8,6 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionApp } from "./overview.js";
 import { sqliteJson, sqlQuote } from "./util/sqlite.js";
+import { t, type Lang } from "./i18n/index.js";
 
 export interface ReplyTarget {
   app: SessionApp;
@@ -21,29 +22,29 @@ export interface ReplyOptions {
   axctlPath: string;
   /** Where Codex's databases live, when not under the real home (tests). */
   home?: string;
+  /** The language the refusal is explained in. Chinese unless said. */
+  lang?: Lang;
 }
-
-const APP_NAME: Record<SessionApp, string> = { claude: "Claude 桌面端", codex: "Codex 应用" };
 
 /** How long to wait for Codex's own database to show the new turn before calling the send unconfirmed. */
 const CODEX_CONFIRM_MS = 15_000;
 
 /** Turns what axctl said into something a person can act on. axctl's messages are stable English sentences. */
-export function explainReplyError(app: SessionApp, raw: string): string {
-  const name = APP_NAME[app];
-  const rules: Array<[RegExp, string]> = [
-    [/not trusted for Accessibility/, "Chancery 没有辅助功能权限，没有发送。到「设置」里授权后再试。"],
-    [/is not running|has no window/, `${name}没有开着，没有发送。`],
-    [/did not switch/, `${name}没有切到这条会话，没有发送。`],
-    [/already holds a draft/, `那条会话的输入框里有一段没发出去的草稿，没有发送。先去 ${name}里处理掉草稿。`],
-    [/still running/, "这条会话还在跑，没有发送。等它停下来再回复。"],
-    [/several composers|split view/, `${name}里开着分屏，认不准是哪个输入框，没有发送。`],
-    [/moved to another/, `写到一半 ${name}切到了别的会话，没有发送。`],
-    [/composer still holds the text/, `按了发送，但文字还留在输入框里。去 ${name}里看一下这条会话。`],
-    [/no title cannot be told apart/, "这条 Codex 线程没有标题，没法确认切对了，没有发送。"],
+export function explainReplyError(app: SessionApp, raw: string, lang: Lang = "zh"): string {
+  const name = t(lang, app === "claude" ? "common.claudeDesktop" : "common.codexApp");
+  const rules: Array<[RegExp, Parameters<typeof t>[1]]> = [
+    [/not trusted for Accessibility/, "reply.noAx"],
+    [/is not running|has no window/, "reply.notRunning"],
+    [/did not switch/, "reply.didNotSwitch"],
+    [/already holds a draft/, "reply.draft"],
+    [/still running/, "reply.stillRunning"],
+    [/several composers|split view/, "reply.splitView"],
+    [/moved to another/, "reply.moved"],
+    [/composer still holds the text/, "reply.textLeft"],
+    [/no title cannot be told apart/, "reply.noTitle"],
   ];
-  for (const [re, message] of rules) if (re.test(raw)) return message;
-  return `没有发送：${raw}`;
+  for (const [re, key] of rules) if (re.test(raw)) return t(lang, key, { app: name });
+  return t(lang, "reply.notSent", { raw });
 }
 
 interface AxctlResult {
@@ -82,7 +83,8 @@ export function replyToSession(target: ReplyTarget, text: string, opts: ReplyOpt
 
 async function send(target: ReplyTarget, text: string, opts: ReplyOptions): Promise<void> {
   const body = text.trim();
-  if (!body) throw new Error("没有内容，没有发送。");
+  const lang = opts.lang ?? "zh";
+  if (!body) throw new Error(t(lang, "reply.empty"));
   const home = opts.home ?? homedir();
   const dir = await mkdtemp(join(tmpdir(), "chancery-reply-"));
   const promptFile = join(dir, "reply.txt");
@@ -90,21 +92,21 @@ async function send(target: ReplyTarget, text: string, opts: ReplyOptions): Prom
     await writeFile(promptFile, body);
     if (target.app === "claude") {
       const res = await axctl(opts.axctlPath, ["reply", "--session", target.id, "--prompt-file", promptFile]);
-      if (!res.ok) throw new Error(explainReplyError("claude", res.error ?? "axctl reply failed"));
+      if (!res.ok) throw new Error(explainReplyError("claude", res.error ?? "axctl reply failed", lang));
       return;
     }
     // Codex: the window title was all axctl could check, and two threads can share one. So the send counts only
     // once this thread's own history shows a new turn.
     const before = await codexNewestTurn(home, target.id).catch(() => null);
     const res = await axctl(opts.axctlPath, ["codex-reply", "--thread", target.id, "--title", target.title, "--prompt-file", promptFile]);
-    if (!res.ok) throw new Error(explainReplyError("codex", res.error ?? "axctl codex-reply failed"));
+    if (!res.ok) throw new Error(explainReplyError("codex", res.error ?? "axctl codex-reply failed", lang));
     if (before === null) return;
     const deadline = Date.now() + CODEX_CONFIRM_MS;
     while (Date.now() < deadline) {
       if ((await codexNewestTurn(home, target.id).catch(() => before)) > before) return;
       await new Promise((r) => setTimeout(r, 1000));
     }
-    throw new Error("消息发出去了，但这条线程里没有出现新的一轮，可能进了另一条同名的线程。去 Codex 应用里看一下。");
+    throw new Error(t(lang, "reply.unconfirmed"));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

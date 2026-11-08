@@ -13,6 +13,12 @@ const api = {
     ipcRenderer.on("chancery:notices", handler);
     return () => ipcRenderer.off("chancery:notices", handler);
   },
+  /** The language the app speaks changed (the settings page in any window, or the system). */
+  onLanguage: (cb: (lang: string) => void) => {
+    const handler = (_ev: unknown, lang: string) => cb(lang);
+    ipcRenderer.on("chancery:language", handler);
+    return () => ipcRenderer.off("chancery:language", handler);
+  },
 };
 
 contextBridge.exposeInMainWorld("chancery", api);

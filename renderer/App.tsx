@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bot, FolderGit2, MessagesSquare, Minimize2, Settings as SettingsIcon } from "lucide-react";
+import type { MsgKey } from "@core/i18n";
 import { Tickets } from "./pages/Tickets";
 import { Sessions } from "./pages/Sessions";
 import { Projects } from "./pages/Projects";
@@ -12,19 +13,20 @@ import { heldUpSessions } from "@core/sessionAlerts";
 import { useChanged } from "./hooks";
 import { api } from "./api";
 import { cn } from "./cn";
+import { useT } from "./i18n";
 
 const HOME = "/sessions";
 
 // The ticket page is no longer in the navigation: the app is now about watching sessions, and the ticket pipeline is
 // shelved. Its route still resolves (`#/tickets`) so the code and its end-to-end test keep working until it is
 // either revived or deleted.
-const HIDDEN_TITLE: Record<string, string> = { "/tickets": "工单" };
+const HIDDEN_TITLE: Record<string, MsgKey> = { "/tickets": "nav.tickets" };
 
-const NAV = [
-  { route: "/sessions", label: "会话", icon: MessagesSquare },
-  { route: "/projects", label: "项目", icon: FolderGit2 },
-  { route: "/agents", label: "Agent", icon: Bot },
-  { route: "/settings", label: "设置", icon: SettingsIcon },
+const NAV: Array<{ route: string; label: MsgKey; icon: typeof MessagesSquare }> = [
+  { route: "/sessions", label: "nav.sessions", icon: MessagesSquare },
+  { route: "/projects", label: "nav.projects", icon: FolderGit2 },
+  { route: "/agents", label: "nav.agents", icon: Bot },
+  { route: "/settings", label: "nav.settings", icon: SettingsIcon },
 ];
 
 function useRoute(): [string, (r: string) => void] {
@@ -38,12 +40,14 @@ function useRoute(): [string, (r: string) => void] {
 }
 
 export function App() {
+  const t = useT();
   const [route, go] = useRoute();
   if (route.startsWith("/capture")) return <Capture />;
   if (route.startsWith("/notices")) return <Notices />;
   if (route.startsWith("/float")) return <Float />;
   const raw = route.split("?")[0] ?? HOME;
   const page = raw === "/board" || raw === "/inbox" ? "/tickets" : raw;
+  const titleKey = NAV.find((n) => n.route === page)?.label ?? HIDDEN_TITLE[page];
   return (
     <div className="relative flex h-full bg-app">
       {/* The strip above the inset container still drags the window. */}
@@ -54,7 +58,7 @@ export function App() {
           {NAV.map(({ route: r, label, icon: Icon }) => (
             <button key={r} onClick={() => go(r)} aria-current={page === r ? "page" : undefined} className={cn("no-drag flex items-center gap-2.5 px-3 h-9 rounded-md text-left text-[14px]", page === r ? "bg-panel2 text-text font-medium" : "text-muted hover:bg-panel2 hover:text-text")}>
               <Icon size={17} strokeWidth={page === r ? 2 : 1.5} />
-              <span>{label}</span>
+              <span>{t(label)}</span>
               {r === "/sessions" && <HeldUpCount />}
             </button>
           ))}
@@ -65,9 +69,9 @@ export function App() {
       </aside>
       <main className="flex-1 min-w-0 flex flex-col my-2 mr-2 rounded-lg border border-line bg-panel overflow-hidden">
         <div className="drag h-[52px] shrink-0 flex items-center pl-8 pr-4">
-          <span className="text-[16px] font-medium">{NAV.find((n) => n.route === page)?.label ?? HIDDEN_TITLE[page] ?? ""}</span>
+          <span className="text-[16px] font-medium">{titleKey ? t(titleKey) : ""}</span>
           {/* The window's own control, so it sits in the window's corner on every page, apart from any page's filters. */}
-          <button type="button" aria-label="最小化到浮窗" title="最小化到浮窗：收起这个窗口，换成一个总在最前面的小窗，列出在等你、待看和在跑的会话" onClick={() => void api.float.show()} className="no-drag ml-auto size-8 inline-flex items-center justify-center rounded-md text-muted hover:text-text hover:bg-panel2">
+          <button type="button" aria-label={t("app.minimizeToFloat")} title={t("app.minimizeToFloatHint")} onClick={() => void api.float.show()} className="no-drag ml-auto size-8 inline-flex items-center justify-center rounded-md text-muted hover:text-text hover:bg-panel2">
             <Minimize2 size={15} />
           </button>
         </div>
@@ -86,6 +90,7 @@ export function App() {
 /** How many sessions are stopped until you do something: the same number as on the dock icon and the menu bar item.
  *  The main process says when it changes; the timer only covers a window that was hidden meanwhile. */
 function HeldUpCount() {
+  const t = useT();
   const [n, setN] = useState(0);
   useChanged(
     () => {
@@ -99,24 +104,24 @@ function HeldUpCount() {
   );
   if (!n) return null;
   return (
-    <span className="ml-auto text-[12px] tabular-nums rounded-full bg-warn/15 text-warn px-2 leading-[20px]" title={`最近 3 天里有 ${n} 个会话在等你`}>
-      <span className="sr-only">，</span>
-      {n}
-      <span className="sr-only"> 个在等你</span>
+    <span className="ml-auto text-[12px] tabular-nums rounded-full bg-warn/15 text-warn px-2 leading-[20px]" title={t("app.heldUpTitle", { n })}>
+      <span className="sr-only">{t("app.heldUpSr", { n })}</span>
+      <span aria-hidden>{n}</span>
     </span>
   );
 }
 
 function DaemonBadge() {
+  const t = useT();
   const [s, setS] = useState<{ running: boolean; paused: boolean; lastTickAt: string | null; lastError: string | null } | null>(null);
   useChanged(() => {
     void api.daemon.status().then(setS);
   });
   if (!s) return null;
   const color = !s.running ? "bg-error" : s.paused ? "bg-warn" : s.lastError ? "bg-error" : "bg-success";
-  const label = !s.running ? "守护进程没在跑" : s.paused ? "已暂停" : s.lastError ? "上次出错" : "在跑";
+  const label = !s.running ? t("daemon.notRunning") : s.paused ? t("daemon.paused") : s.lastError ? t("daemon.lastError") : t("daemon.running");
   return (
-    <button onClick={() => api.daemon.pause(!s.paused).then(setS)} title={s.lastError ?? (s.lastTickAt ? `上次 ${new Date(s.lastTickAt).toLocaleTimeString()}` : "")} className="no-drag flex items-center gap-2.5 h-9 px-3 -mx-1 rounded-md text-[13px] text-muted hover:bg-panel2 hover:text-text">
+    <button onClick={() => api.daemon.pause(!s.paused).then(setS)} title={s.lastError ?? (s.lastTickAt ? t("daemon.lastTick", { time: new Date(s.lastTickAt).toLocaleTimeString() }) : "")} className="no-drag flex items-center gap-2.5 h-9 px-3 -mx-1 rounded-md text-[13px] text-muted hover:bg-panel2 hover:text-text">
       <span className={cn("inline-block size-2 rounded-full", color)} />
       {label}
     </button>

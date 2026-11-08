@@ -1,6 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { Daemon, Repo, TicketStatus } from "../core/index.js";
-import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, replyToSession, sessionOpenFor, type Overview, type ReplyTarget, type SessionOpen } from "../core/index.js";
+import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, replyToSession, sessionOpenFor, t, type Lang, type Overview, type ReplyTarget, type SessionOpen } from "../core/index.js";
 import { run } from "../core/util/run.js";
 import { openSession } from "./openSession.js";
 import type { Settings } from "./settings.js";
@@ -10,6 +10,8 @@ export interface IpcDeps {
   daemon: Daemon;
   settings: () => Settings;
   saveSettings: (s: Settings) => void;
+  /** The language the app speaks right now: the setting, or the system's when the setting says so. */
+  lang: () => Lang;
   worktreeRoot: () => string;
   pgInfo: () => { embedded: boolean; connectionString: string };
   axctlPath: string;
@@ -33,7 +35,7 @@ export function registerIpc(deps: IpcDeps): void {
   h<{ dir?: string }, unknown>("projects:register", async ({ dir }, win) => {
     let target = dir;
     if (!target) {
-      const r = await dialog.showOpenDialog(win!, { properties: ["openDirectory"], title: "选择项目的 git 目录" });
+      const r = await dialog.showOpenDialog(win!, { properties: ["openDirectory"], title: t(deps.lang(), "dialog.pickGitDir") });
       if (r.canceled || !r.filePaths[0]) return null;
       target = r.filePaths[0];
     }
@@ -77,17 +79,17 @@ export function registerIpc(deps: IpcDeps): void {
   h<Parameters<Repo["createTicket"]>[0], unknown>("tickets:create", (input) => repo.createTicket(input));
   h<{ id: string; patch: Record<string, unknown> }, unknown>("tickets:update", ({ id, patch }) => repo.updateTicket(id, patch));
   h<{ id: string; status: TicketStatus; note?: string }, unknown>("tickets:setStatus", async ({ id, status, note }) => {
-    const t = await repo.setStatus(id, status, "human", note);
+    const ticket = await repo.setStatus(id, status, "human", note);
     if (status === "ready") void daemon.tick();
-    return t;
+    return ticket;
   });
   h<{ id: string; text: string }, unknown>("tickets:answer", async ({ id, text }) => {
     await repo.addEvent({ ticketId: id, actor: "human", kind: "answer", payload: { text } });
     // Phase 0: the answer is recorded and the ticket goes back to ready for a fresh worker. Delivery into the
     // existing session (--resume) is Phase 1.
-    const t = await repo.setStatus(id, "ready", "human", "已回复");
+    const ticket = await repo.setStatus(id, "ready", "human", t(deps.lang(), "ticket.answeredNote"));
     void daemon.tick();
-    return t;
+    return ticket;
   });
 
   h<{ text: string }, unknown>("tickets:draft", async ({ text }) => {
@@ -122,11 +124,13 @@ export function registerIpc(deps: IpcDeps): void {
     }
   });
 
-  h("settings:get", () => ({ ...deps.settings(), pg: deps.pgInfo() }));
+  // Both answers carry the same extras: where the database is, and which language the setting comes out as.
+  const withExtras = (s: Settings) => ({ ...s, pg: deps.pgInfo(), lang: deps.lang() });
+  h("settings:get", () => withExtras(deps.settings()));
   h<Partial<Settings>, unknown>("settings:set", (patch) => {
     const next = { ...deps.settings(), ...patch };
     deps.saveSettings(next);
-    return next;
+    return withExtras(deps.settings());
   });
 
   h("main:show", () => deps.showMain());
@@ -138,7 +142,7 @@ export function registerIpc(deps: IpcDeps): void {
   h<{ target: ReplyTarget; text: string }, void>("session:reply", async ({ target, text }) => {
     deps.log(`reply to ${target.app}:${target.id} (${text.trim().length} chars)`);
     try {
-      await replyToSession(target, text, { axctlPath: deps.axctlPath, home: deps.sessionsHome });
+      await replyToSession(target, text, { axctlPath: deps.axctlPath, home: deps.sessionsHome, lang: deps.lang() });
     } catch (err) {
       deps.log(`reply to ${target.app}:${target.id} failed: ${err instanceof Error ? err.message : String(err)}`);
       throw err;

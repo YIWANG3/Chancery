@@ -12,13 +12,16 @@
 //                                      also lists Codex threads started by `codex exec`)
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { buildOverview, createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, draftTicket, migrate, type SessionState } from "../core/index.js";
+import { buildOverview, createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, draftTicket, migrate, resolveLang, translator, type SessionState } from "../core/index.js";
 import { DEFAULT_SETTINGS, loadSettings } from "../main/settings.js";
 
 const userData = process.env.CHANCERY_USER_DATA ?? join(homedir(), "Library", "Application Support", "chancery-claude");
 const settings = loadSettings(join(userData, "settings.json"));
 const connectionString = process.env.CHANCERY_PG ?? settings.pgConnectionString ?? "";
 const url = connectionString || `postgres://chancery:chancery@127.0.0.1:${settings.pgPort ?? DEFAULT_SETTINGS.pgPort}/chancery`;
+// The app's language setting, else the shell's locale (LC_ALL wins over LANG, as in any other command).
+const lang = resolveLang(settings.language, [process.env.CHANCERY_LANG, process.env.LC_ALL, process.env.LC_MESSAGES, process.env.LANG].filter((s): s is string => Boolean(s)));
+const t = translator(lang);
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -26,30 +29,32 @@ function flag(args: string[], name: string): string | undefined {
 }
 const positional = (args: string[]) => args.filter((a, i, all) => !a.startsWith("--") && !(i > 0 && all[i - 1]!.startsWith("--") && !["ready"].includes(all[i - 1]!.slice(2))));
 
-const SESSION_STATE_LABEL: Record<SessionState, string> = { "needs-you": "等我", error: "出错", stuck: "卡住", review: "待审", unread: "完成未读", running: "运行中", interrupted: "已中断", expired: "超时结束", done: "已完成" };
+const stateLabel = (s: SessionState) => t(`state.${s}`);
 
 /** Reads only the two apps' own state, so it runs whether or not the app or its Postgres is up. */
 async function sessions(args: string[]): Promise<void> {
   const now = Date.now();
-  const overview = await buildOverview({ claudeBin: settings.claudeBin, days: Number(flag(args, "days") ?? 14), includeExec: args.includes("--all"), includeGone: args.includes("--all"), now });
+  const overview = await buildOverview({ claudeBin: settings.claudeBin, days: Number(flag(args, "days") ?? 14), includeExec: args.includes("--all"), includeGone: args.includes("--all"), now, lang });
   if (args.includes("--json")) {
     console.log(JSON.stringify(overview, null, 2));
     return;
   }
   const ago = (at: number) => {
     const m = Math.round((now - at) / 60_000);
-    return m < 60 ? `${m} 分钟前` : m < 48 * 60 ? `${Math.round(m / 60)} 小时前` : `${Math.round(m / 1440)} 天前`;
+    return m < 60 ? t("time.minutesAgo", { n: m }) : m < 48 * 60 ? t("time.hoursAgo", { n: Math.round(m / 60) }) : t("time.daysAgo", { n: Math.round(m / 1440) });
   };
   const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   for (const p of overview.projects) {
-    const tally = (Object.entries(p.counts) as Array<[SessionState, number]>).filter(([, n]) => n > 0).map(([s, n]) => `${SESSION_STATE_LABEL[s]} ${n}`);
+    const tally = (Object.entries(p.counts) as Array<[SessionState, number]>).filter(([, n]) => n > 0).map(([s, n]) => `${stateLabel(s)} ${n}`);
     console.log(`\n${p.name}  ·  ${tally.join("  ")}${p.dir ? `  ·  ${p.dir.replace(homedir(), "~")}` : ""}`);
     for (const s of overview.sessions.filter((x) => x.projectKey === p.key)) {
-      console.log(`  ${SESSION_STATE_LABEL[s.state].padEnd(4, "　")} ${s.app.padEnd(6)} ${ago(s.at).padStart(9)}  ${clip(s.title.replace(/\s+/g, " ") || "（无标题）", 40)}`);
+      // Chinese labels are padded with full-width spaces so the columns line up; English ones are longer and plain.
+      const label = lang === "zh" ? stateLabel(s.state).padEnd(4, "　") : stateLabel(s.state).padEnd(12);
+      console.log(`  ${label} ${s.app.padEnd(6)} ${ago(s.at).padStart(lang === "zh" ? 9 : 14)}  ${clip(s.title.replace(/\s+/g, " ") || t("common.untitled"), 40)}`);
       if (s.detail) console.log(`${" ".repeat(26)}↳ ${clip(s.detail.replace(/\s+/g, " "), 90)}`);
     }
   }
-  for (const e of overview.errors) console.error(`读不到：${e}`);
+  for (const e of overview.errors) console.error(t("common.cannotRead", { what: e }));
 }
 
 async function main() {

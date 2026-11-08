@@ -2,7 +2,7 @@ import { app, BrowserWindow, globalShortcut, Menu, nativeImage, nativeTheme, pow
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
-import { createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, heldUpSessions, migrate, triageTicket, type Daemon, type Db, type SessionRow, type Triage } from "../core/index.js";
+import { createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, heldUpSessions, migrate, resolveLang, t, triageTicket, type Daemon, type Db, type Lang, type SessionRow, type Triage } from "../core/index.js";
 import { broadcast, registerIpc } from "./ipc.js";
 import { createFloatControl, type FloatControl } from "./floatWindow.js";
 import { createNotifier } from "./notify.js";
@@ -50,6 +50,8 @@ let settings: Settings = loadSettings(settingsPath);
 let pg: PgHandle | null = null;
 let db: Db | null = null;
 let quitting = false;
+/** Set the moment quitting starts (before-quit), ahead of `quitting`, which marks the shutdown steps proper. */
+let quitRequested = false;
 let daemon: Daemon | null = null;
 let mainWindow: BrowserWindow | null = null;
 let captureWindow: BrowserWindow | null = null;
@@ -99,6 +101,16 @@ const applyTheme = (theme: ThemePref) => {
   nativeTheme.themeSource = theme;
 };
 
+/** The language the app speaks: the setting, or the system's languages in order when the setting says so. */
+const lang = (): Lang => resolveLang(settings.language, app.getPreferredSystemLanguages());
+/** After the language setting changed: the menu bar menu is rebuilt, every window is told, and the session
+ *  overview is read again so its own words (details, errors, the catch-all group) come back in the new language. */
+function applyLanguage() {
+  refreshAttention();
+  broadcast("chancery:language", lang());
+  void sessionWatch?.refresh().catch(() => {});
+}
+
 function loadRoute(win: BrowserWindow, route: string) {
   if (DEV_URL) return win.loadURL(`${DEV_URL}/#${route}`);
   return win.loadFile(join(__dirname, "renderer", "index.html"), { hash: route });
@@ -139,6 +151,9 @@ function createMainWindow(): BrowserWindow {
 
 /** Brings the main window up. The floating window is its minimized form, so this also puts that away. */
 function showMain() {
+  // While quitting, the windows are being closed; one made now would never be closed and would keep the app alive.
+  // The floating window's `closed` asks for the main window back, and when the main window went first that is here.
+  if (quitRequested) return;
   if (!mainWindow) mainWindow = createMainWindow();
   else {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -204,19 +219,20 @@ function refreshAttention() {
   app.dock?.setBadge(n ? String(n) : "");
   if (!tray) return;
   tray.setTitle(n ? `Ch ${n}` : "Ch");
+  const l = lang();
   const waiting: Electron.MenuItemConstructorOptions[] = heldUp.slice(0, TRAY_SESSIONS).map((s) => ({
-    label: `${clip(s.title || "（无标题）", 36)} — ${s.app === "claude" ? "Claude" : "Codex"}`,
+    label: `${clip(s.title || t(l, "common.untitled"), 36)} — ${s.app === "claude" ? "Claude" : "Codex"}`,
     toolTip: s.detail || undefined,
     click: () => jumpTo(s),
   }));
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "打开", click: showMain },
-      ...(floatControl?.isVisible() ? [] : [{ label: "最小化到浮窗", click: () => floatControl?.show() }]),
-      { label: "记一条", click: toggleCapture },
+      { label: t(l, "tray.open"), click: showMain },
+      ...(floatControl?.isVisible() ? [] : [{ label: t(l, "app.minimizeToFloat"), click: () => floatControl?.show() }]),
+      { label: t(l, "tray.capture"), click: toggleCapture },
       { type: "separator" },
-      ...(n ? [{ label: `${n} 个会话在等你`, enabled: false }, ...waiting, ...(n > TRAY_SESSIONS ? [{ label: `还有 ${n - TRAY_SESSIONS} 个，在窗口里看`, click: showMain }] : []), { type: "separator" as const }] : []),
-      { label: "退出", click: () => app.quit() },
+      ...(n ? [{ label: t(l, "tray.waiting", { n }), enabled: false }, ...waiting, ...(n > TRAY_SESSIONS ? [{ label: t(l, "tray.more", { n: n - TRAY_SESSIONS }), click: showMain }] : []), { type: "separator" as const }] : []),
+      { label: t(l, "tray.quit"), click: () => app.quit() },
     ]),
   );
 }
@@ -285,6 +301,7 @@ function startWatchingSessions() {
     claudeBin: () => settings.claudeBin,
     home: process.env.CHANCERY_SESSIONS_HOME || undefined,
     alertsEnabled: () => settings.sessionAlerts,
+    lang,
     notify: (notice) => notifier.notify(notice),
     onChange: (overview) => {
       heldUp = heldUpSessions(overview);
@@ -351,9 +368,12 @@ async function boot() {
     saveSettings: (s) => {
       if (s.theme !== settings.theme) applyTheme(s.theme);
       if (s.launchAtLogin !== settings.launchAtLogin) applyLoginItem(s.launchAtLogin);
+      const languageChanged = s.language !== settings.language;
       settings = s;
       saveSettings(settingsPath, s);
+      if (languageChanged) applyLanguage();
     },
+    lang,
     worktreeRoot: () => settings.worktreeRoot,
     pgInfo: () => ({ embedded: pg?.embedded ?? false, connectionString: pg?.connectionString.replace(/:[^:@/]+@/, ":***@") ?? "" }),
     axctlPath,
@@ -405,8 +425,26 @@ if (!app.requestSingleInstanceLock()) {
     // Stay resident: the daemon keeps working from the tray.
   });
   app.on("before-quit", () => {
+    if (quitRequested) return;
+    quitRequested = true;
+    // Which windows are up when quitting starts, and which of them closes: Electron reaches will-quit only once
+    // every window is closed, so a window that stays is what a quit that never finishes looks like in the log.
+    const route = (w: BrowserWindow) => `${w.webContents.getURL().split("#")[1] ?? "?"}${w.isVisible() ? "" : "(hidden)"}`;
+    log(`quit requested; windows: ${BrowserWindow.getAllWindows().map(route).join(", ") || "none"}`);
+    for (const w of BrowserWindow.getAllWindows()) {
+      const name = route(w); // read now: the contents are gone by the time the window has closed
+      w.once("closed", () => log(`quit: window ${name} closed`));
+    }
     sessionWatch?.stop();
     globalShortcut.unregisterAll();
+    // Whatever keeps a window open (a page that does not answer, a window made after this point), the quit goes on:
+    // the shutdown steps run anyway and end the process.
+    setTimeout(() => {
+      if (quitting) return;
+      log(`quit: will-quit did not come in 5 s; windows: ${BrowserWindow.getAllWindows().map(route).join(", ") || "none"}; shutting down anyway`);
+      for (const w of BrowserWindow.getAllWindows()) w.destroy();
+      void shutdown();
+    }, 5_000).unref?.();
   });
   app.on("will-quit", (ev) => {
     if (quitting || (!pg && !daemon)) return;

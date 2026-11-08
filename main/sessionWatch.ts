@@ -2,21 +2,23 @@
 // is open: a notice that jumps to the session when clicked, and a fresh snapshot for the page, the menu bar item and
 // the dock badge.
 import { BrowserWindow } from "electron";
-import { buildOverview, createAlertTracker, type AlertKind, type Overview, type SessionAlert, type SessionApp } from "../core/index.js";
+import { buildOverview, createAlertTracker, t, type AlertKind, type Lang, type Overview, type SessionAlert, type SessionApp } from "../core/index.js";
 import { run } from "../core/util/run.js";
 import type { Notice } from "./notify.js";
 
-const POLL_MS = 10_000;
+/** Between two reads. CHANCERY_SESSION_POLL_MS shortens it for the e2e tests, whose waits otherwise sit on this. */
+const POLL_MS = Math.max(200, Number(process.env.CHANCERY_SESSION_POLL_MS) || 10_000);
 /** A snapshot this recent is handed to the page as is. Longer than one poll, so while the loop is alive the page
  *  never causes a second read; it only does when the loop has fallen behind. */
-const FRESH_MS = 15_000;
+const FRESH_MS = POLL_MS * 1.5;
 /** More alerts than this from one read are folded into a single notification. */
 const MAX_SEPARATE = 3;
 
 const APP_NAME: Record<SessionApp, string> = { claude: "Claude", codex: "Codex" };
 const APP_BUNDLE: Record<SessionApp, string> = { claude: "com.anthropic.claudefordesktop", codex: "com.openai.codex" };
 
-const KIND_LABEL: Record<AlertKind, string> = { "needs-you": "等你", error: "出错", stuck: "卡住", review: "待审", finished: "跑完了" };
+/** The first word of a notice's title, by what happened. */
+const kindKey = (kind: AlertKind) => `alert.${kind}` as const;
 
 export interface SessionWatchDeps {
   claudeBin: () => string;
@@ -24,6 +26,8 @@ export interface SessionWatchDeps {
   home?: string;
   /** Whether to raise notices. The watch keeps the snapshot and the counts current either way. */
   alertsEnabled: () => boolean;
+  /** The language notices and the overview's own words are in, read at each use so a change applies at once. */
+  lang: () => Lang;
   notify: (notice: Notice) => void;
   /** Called after every read whose sessions differ from the previous one. */
   onChange: (overview: Overview) => void;
@@ -75,17 +79,18 @@ export function startSessionWatch(deps: SessionWatchDeps): SessionWatch {
     const due = alerts.filter((a) => APP_BUNDLE[a.session.app] !== front);
     if (due.length < alerts.length) deps.log(`sessions: ${alerts.length - due.length} not notified, their app is in front`);
     if (!due.length) return;
+    const lang = deps.lang();
     if (due.length > MAX_SEPARATE) {
       const waiting = due.filter((a) => a.kind !== "finished" && a.kind !== "review").length;
-      deps.notify({ title: `${due.length} 个会话有新状态`, body: waiting ? `其中 ${waiting} 个在等你。点开看列表。` : "点开看列表。", onClick: deps.onOpenList });
+      deps.notify({ title: t(lang, "alert.manyTitle", { n: due.length }), body: waiting ? t(lang, "alert.manyBodyWaiting", { n: waiting }) : t(lang, "alert.manyBody"), onClick: deps.onOpenList });
       return;
     }
     for (const a of due) {
       const s = a.session;
       deps.notify({
-        title: `${KIND_LABEL[a.kind]} · ${s.title || "（无标题）"}`,
+        title: `${t(lang, kindKey(a.kind))} · ${s.title || t(lang, "common.untitled")}`,
         subtitle: [APP_NAME[s.app], a.project].filter(Boolean).join(" · "),
-        body: s.detail || (a.kind === "finished" ? "这一轮结束了。" : ""),
+        body: s.detail || (a.kind === "finished" ? t(lang, "alert.turnEnded") : ""),
         onClick: () => deps.onOpen(a),
       });
     }
@@ -93,7 +98,7 @@ export function startSessionWatch(deps: SessionWatchDeps): SessionWatch {
 
   async function read(): Promise<Overview> {
     const front = await frontmostBundleId();
-    const overview = await buildOverview({ claudeBin: deps.claudeBin(), home: deps.home, claudeInFront: front === APP_BUNDLE.claude });
+    const overview = await buildOverview({ claudeBin: deps.claudeBin(), home: deps.home, claudeInFront: front === APP_BUNDLE.claude, lang: deps.lang() });
     snapshot = overview;
     const alerts = tracker.feed(overview);
     const print = fingerprint(overview);

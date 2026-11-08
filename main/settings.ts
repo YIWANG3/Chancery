@@ -2,11 +2,15 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { LangPref } from "../core/i18n/index.js";
+
 export type ThemePref = "system" | "light" | "dark";
 
 export interface Settings {
   /** 外观：跟随系统 / 浅色 / 深色；applied through nativeTheme.themeSource so the renderer only needs prefers-color-scheme. */
   theme: ThemePref;
+  /** The language the app speaks (interface, notices, menu bar menu, CLI): one of its own, or the system's. */
+  language: LangPref;
   pgPort: number;
   /** Empty = the embedded cluster; otherwise a full connection string to an external Postgres. */
   pgConnectionString: string;
@@ -43,6 +47,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
+  language: "system",
   pgPort: 54329,
   pgConnectionString: "",
   worktreeRoot: join(homedir(), ".platform", "worktrees"),

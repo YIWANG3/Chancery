@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { api, type ClaudeAgent } from "../api";
 import { useChanged } from "../hooks";
+import { useT } from "../i18n";
 import { cn } from "../cn";
 import { Empty, Pill, SectionLabel } from "../ui";
 
 export function Agents() {
+  const t = useT();
   const [agents, setAgents] = useState<ClaudeAgent[]>([]);
   useChanged(
     () => {
@@ -15,8 +17,10 @@ export function Agents() {
   );
   return (
     <div className="px-8 pb-10 flex flex-col gap-3 max-w-[1040px]">
-      <SectionLabel>Claude 活动会话 · {agents.length}</SectionLabel>
-      {!agents.length && <Empty>没有活动的 Claude 会话。</Empty>}
+      <SectionLabel>
+        {t("agents.active")} · {agents.length}
+      </SectionLabel>
+      {!agents.length && <Empty>{t("agents.none")}</Empty>}
       <div className="flex flex-col gap-0.5 -mx-3">
         {agents.map((a) => (
           <div key={a.sessionId} className="hover:bg-panel2 rounded-md px-3 h-10 flex items-center gap-4 text-[14px]">
