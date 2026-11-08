@@ -8,7 +8,7 @@ const row = (over: Partial<SessionRow>): SessionRow => ({ app: "claude", id: "s1
 
 const overview = (sessions: SessionRow[], readAt = NOW): Overview => ({
   sessions,
-  projects: [{ key: "/w/a", name: "a", dir: "/w/a", apps: ["claude", "codex"], sessions: sessions.length, counts: { "needs-you": 0, error: 0, stuck: 0, review: 0, unread: 0, running: 0, interrupted: 0, done: 0 }, lastAt: NOW }],
+  projects: [{ key: "/w/a", name: "a", dir: "/w/a", apps: ["claude", "codex"], sessions: sessions.length, counts: { "needs-you": 0, error: 0, stuck: 0, review: 0, unread: 0, running: 0, interrupted: 0, expired: 0, done: 0 }, lastAt: NOW }],
   readAt,
   errors: [],
 });
@@ -36,6 +36,7 @@ describe("alertKindOf", () => {
   it("says nothing about running or interrupted sessions", () => {
     expect(alertKindOf({ app: "codex", state: "running", turn: "" })).toBeNull();
     expect(alertKindOf({ app: "codex", state: "interrupted", turn: "3" })).toBeNull();
+    expect(alertKindOf({ app: "codex", state: "expired", turn: "3" })).toBeNull();
   });
 });
 

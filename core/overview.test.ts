@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CODEX_STALE_MS, OTHER_PROJECT_KEY, attentionOf, classifyClaude, classifyCodex, groupByProject, stripWorktree, type SessionRow } from "./overview.js";
+import { CODEX_STALE_MS, OTHER_PROJECT_KEY, UNREAD_EXPIRE_MS, attentionOf, classifyClaude, classifyCodex, groupByProject, stripWorktree, type SessionRow } from "./overview.js";
 
 describe("classifyClaude", () => {
   const reply = { lastAssistantUuid: "u1", postTurnSummaryFor: "u1" };
@@ -61,6 +61,12 @@ describe("classifyCodex", () => {
     expect(classifyCodex(facts({ unread: true }), now).state).toBe("unread");
     expect(classifyCodex(facts({ unread: false }), now).state).toBe("done");
   });
+  it("expires an unread thread nobody opened for a day, and says how long it sat", () => {
+    expect(classifyCodex(facts({ unread: true, lastActivityAt: now - UNREAD_EXPIRE_MS + 60_000 }), now).state).toBe("unread");
+    expect(classifyCodex(facts({ unread: true, lastActivityAt: now - 3 * UNREAD_EXPIRE_MS - 60_000 }), now)).toMatchObject({ state: "expired", detail: "完成后 3 天没打开", turn: "3" });
+    // Read threads were seen; they end as done however old they are.
+    expect(classifyCodex(facts({ unread: false, lastActivityAt: now - 10 * UNREAD_EXPIRE_MS }), now).state).toBe("done");
+  });
   it("keeps interrupted apart from done, and treats a thread with no turn as done", () => {
     expect(classifyCodex(facts({ turnStatus: "interrupted", unread: true }), now).state).toBe("interrupted");
     expect(classifyCodex(facts({ turnStatus: null, turnOrdinal: null }), now)).toMatchObject({ state: "done", basis: "no turn", turn: "" });
@@ -107,6 +113,17 @@ describe("groupByProject", () => {
       row({ projectKey: "/w/blocked", state: "needs-you", at: 1 }),
     ]);
     expect(projects.map((p) => p.name)).toEqual(["blocked", "busy", "quiet"]);
+  });
+  it("lists sessions by state: held up, then running, then waiting to be looked at, then ended; newest first within a state", () => {
+    const { sessions } = groupByProject([
+      row({ app: "codex", state: "unread", at: 50 }),
+      row({ app: "codex", state: "unread", at: 60 }),
+      row({ app: "claude", state: "done", at: 99 }),
+      row({ app: "claude", state: "running", at: 1 }),
+      row({ app: "claude", state: "review", at: 70 }),
+      row({ app: "claude", state: "needs-you", at: 2 }),
+    ]);
+    expect(sessions.map((s) => `${s.state}@${s.at}`)).toEqual(["needs-you@2", "running@1", "review@70", "unread@60", "unread@50", "done@99"]);
   });
   it("names the catch-all group and gives it no directory", () => {
     const { projects } = groupByProject([row({ projectKey: OTHER_PROJECT_KEY })]);

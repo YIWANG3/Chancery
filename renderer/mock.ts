@@ -67,7 +67,7 @@ export function installMock(): void {
       s("claude", "local_6", notes, "done", "PDF 旅游合集准备", 900, "小红书链接已加入 PDF 介绍页并重新生成，19 页", "postTurnSummary.completed"),
       s("codex", "t6", af, "done", "只回复 ok", 2600, "", "thread_turns.completed"),
     ];
-    const zero = { "needs-you": 0, error: 0, stuck: 0, review: 0, unread: 0, running: 0, interrupted: 0, done: 0 };
+    const zero = { "needs-you": 0, error: 0, stuck: 0, review: 0, unread: 0, running: 0, interrupted: 0, expired: 0, done: 0 };
     const group = (key: string, name: string) => {
       const mine = sessions.filter((x) => x.projectKey === key);
       const counts = { ...zero } as Record<string, number>;

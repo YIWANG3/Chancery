@@ -15,6 +15,7 @@ export const STATE_LABEL: Record<SessionState, string> = {
   unread: "完成未读",
   running: "运行中",
   interrupted: "已中断",
+  expired: "超时结束",
   done: "已完成",
 };
 
@@ -26,6 +27,7 @@ export const STATE_TONE: Record<SessionState, string> = {
   unread: "text-text",
   running: "text-accent",
   interrupted: "text-muted",
+  expired: "text-muted",
   done: "text-muted",
 };
 
@@ -37,6 +39,7 @@ export const STATE_DOT: Record<SessionState, string> = {
   unread: "bg-text",
   running: "bg-accent",
   interrupted: "bg-muted/60",
+  expired: "bg-muted/60",
   done: "bg-muted/60",
 };
 
@@ -50,6 +53,7 @@ export const BUCKET: Record<SessionState, Bucket> = {
   unread: "look",
   running: "running",
   interrupted: "ended",
+  expired: "ended",
   done: "ended",
 };
 export const BUCKET_LABEL: Record<Bucket, string> = { needs: "等我", look: "待看", running: "运行中", ended: "已结束" };

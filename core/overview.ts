@@ -25,10 +25,14 @@ export type SessionState =
   | "unread" // finished, and the app says it has not been opened since
   | "running"
   | "interrupted"
+  | "expired" // finished and left unopened for so long that nobody is going to look at it
   | "done";
 
-/** Sort order: what needs a person first, then what is merely waiting to be looked at, then the rest. */
-export const SESSION_STATE_ORDER: SessionState[] = ["needs-you", "error", "stuck", "review", "unread", "running", "interrupted", "done"];
+/** Sort order: what needs a person first, then what is still moving, then what is merely waiting to be looked at,
+ *  then the rest. Running comes before the waiting-to-be-looked-at states on purpose: a Codex thread stays "unread"
+ *  until it is opened in the Codex app, so a dozen of them from days ago would otherwise bury the session that
+ *  started a minute ago. */
+export const SESSION_STATE_ORDER: SessionState[] = ["needs-you", "error", "stuck", "running", "review", "unread", "interrupted", "expired", "done"];
 
 export interface SessionVerdict {
   state: SessionState;
@@ -80,6 +84,11 @@ export const OTHER_PROJECT_KEY = "(other)";
 /** A Codex turn still marked inProgress with no activity for this long is shown as stuck rather than running. A long
  *  command writes nothing while it runs, so this is deliberately generous. */
 export const CODEX_STALE_MS = 30 * 60_000;
+
+/** A Codex thread that finished and was not opened within this long is shown as expired rather than unread: Codex
+ *  keeps the unread mark until the thread is opened in its app, so without this a dozen finished threads from last
+ *  week would sit in "waiting to be looked at" forever. */
+export const UNREAD_EXPIRE_MS = 86_400_000;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -146,7 +155,11 @@ export function classifyCodex(t: CodexThreadFacts, now: number): SessionVerdict 
   }
   if (t.turnStatus === "failed") return { state: "error", detail: codexErrorMessage(t.errorJson), basis, turn };
   if (t.turnStatus === "interrupted") return { state: "interrupted", detail: "", basis, turn };
-  if (t.turnStatus === "completed" && t.unread) return { state: "unread", detail: "", basis: `${basis} + unread`, turn };
+  if (t.turnStatus === "completed" && t.unread) {
+    const idle = now - t.lastActivityAt;
+    if (idle > UNREAD_EXPIRE_MS) return { state: "expired", detail: `完成后 ${Math.floor(idle / 86_400_000)} 天没打开`, basis: `${basis} + unread, expired`, turn };
+    return { state: "unread", detail: "", basis: `${basis} + unread`, turn };
+  }
   return { state: "done", detail: "", basis, turn };
 }
 
@@ -284,7 +297,7 @@ async function readCodex(home: string, since: number, includeExec: boolean, now:
   });
 }
 
-const zeroCounts = (): Record<SessionState, number> => ({ "needs-you": 0, error: 0, stuck: 0, review: 0, unread: 0, running: 0, interrupted: 0, done: 0 });
+const zeroCounts = (): Record<SessionState, number> => ({ "needs-you": 0, error: 0, stuck: 0, review: 0, unread: 0, running: 0, interrupted: 0, expired: 0, done: 0 });
 
 /** How many sessions in a group are held up on a person. */
 export const attentionOf = (counts: Record<SessionState, number>): number => counts["needs-you"] + counts.error + counts.stuck;

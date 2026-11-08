@@ -26,7 +26,7 @@ function flag(args: string[], name: string): string | undefined {
 }
 const positional = (args: string[]) => args.filter((a, i, all) => !a.startsWith("--") && !(i > 0 && all[i - 1]!.startsWith("--") && !["ready"].includes(all[i - 1]!.slice(2))));
 
-const SESSION_STATE_LABEL: Record<SessionState, string> = { "needs-you": "等我", error: "出错", stuck: "卡住", review: "待审", unread: "完成未读", running: "运行中", interrupted: "已中断", done: "已完成" };
+const SESSION_STATE_LABEL: Record<SessionState, string> = { "needs-you": "等我", error: "出错", stuck: "卡住", review: "待审", unread: "完成未读", running: "运行中", interrupted: "已中断", expired: "超时结束", done: "已完成" };
 
 /** Reads only the two apps' own state, so it runs whether or not the app or its Postgres is up. */
 async function sessions(args: string[]): Promise<void> {
