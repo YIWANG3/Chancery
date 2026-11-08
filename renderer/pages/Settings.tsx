@@ -67,8 +67,8 @@ export function SettingsPage() {
         <SettingRow title="会话提醒" description="Claude 或 Codex 的会话停下来等你、出错、跑完时提醒一次，点提醒跳到那个会话。系统不让本应用发通知时，改用屏幕右上角的小浮窗。你正看着这个窗口或那一家的应用时不提醒。">
           {toggle("sessionAlerts", "会话提醒")}
         </SettingRow>
-        <SettingRow title="启动时显示浮窗" description="置顶的小窗，列出在等你、待看和在跑的会话。平时从会话页右上角或菜单栏图标的菜单里打开和收起。">
-          {toggle("floatOnStart", "启动时显示浮窗")}
+        <SettingRow title="启动时最小化到浮窗" description="启动后不开主窗口，只在屏幕右上角放一个置顶的小窗，列出在等你、待看和在跑的会话。平时从会话页右上角的按钮或菜单栏图标的菜单里最小化，从浮窗回到主窗口。">
+          {toggle("floatOnStart", "启动时最小化到浮窗")}
         </SettingRow>
       </SettingGroup>
 

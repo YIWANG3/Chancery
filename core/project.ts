@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { run } from "./util/run.js";
 import type { ExecutorKind } from "./types.js";
@@ -20,9 +20,12 @@ export function parseGithubRepo(url: string): string | null {
 }
 
 /** Reads what the repo already says about itself: git remote, default branch, .claude/platform.json. */
-export async function readProjectFromDir(dir: string): Promise<ProjectInfo> {
-  const s = await stat(dir).catch(() => null);
-  if (!s?.isDirectory()) throw new Error(`not a directory: ${dir}`);
+export async function readProjectFromDir(given: string): Promise<ProjectInfo> {
+  const s = await stat(given).catch(() => null);
+  if (!s?.isDirectory()) throw new Error(`not a directory: ${given}`);
+  // Stored as git itself reports it (symlinks resolved: /var → /private/var on macOS), so the sessions the apps
+  // ran in the directory fold onto the same project.
+  const dir = await realpath(given);
   const inside = await run("git", ["rev-parse", "--is-inside-work-tree"], { cwd: dir }).catch(() => null);
   if (inside?.stdout.trim() !== "true") throw new Error(`not a git repository: ${dir}`);
 

@@ -24,6 +24,26 @@ describe("classifyClaude", () => {
   it("is done with the summary's line when completed", () => {
     expect(classifyClaude({ ...reply, postTurnSummary: { status_category: "completed", status_detail: "测试全过" } }, undefined)).toMatchObject({ state: "done", detail: "测试全过" });
   });
+  describe("a completed turn that landed after the session was last brought up", () => {
+    const completed = { ...reply, postTurnSummary: { status_category: "completed", status_detail: "测试全过" } };
+    const now = 1_000_000_000_000;
+    it("is unread, with the summary's line and a basis that says why", () => {
+      expect(classifyClaude({ ...completed, lastFocusedAt: now - 60_000, lastActivityAt: now - 1_000 }, "idle", { now })).toEqual({ state: "unread", detail: "测试全过", basis: "postTurnSummary.completed + unopened", turn: "u1" });
+    });
+    it("is done once the session was brought up again, or while it is the one being watched", () => {
+      expect(classifyClaude({ ...completed, lastFocusedAt: now - 500, lastActivityAt: now - 1_000 }, "idle", { now }).state).toBe("done");
+      expect(classifyClaude({ ...completed, lastFocusedAt: now - 60_000, lastActivityAt: now - 1_000 }, "idle", { now, watched: true }).state).toBe("done");
+    });
+    it("is done when the index has never stamped the session focused (older entries)", () => {
+      expect(classifyClaude({ ...completed, lastActivityAt: now - 1_000 }, "idle", { now }).state).toBe("done");
+    });
+    it("expires after a day unopened, like a Codex thread", () => {
+      expect(classifyClaude({ ...completed, lastFocusedAt: now - UNREAD_EXPIRE_MS - 120_000, lastActivityAt: now - UNREAD_EXPIRE_MS - 60_000 }, "idle", { now })).toMatchObject({ state: "expired", detail: "完成后 1 天没打开" });
+    });
+    it("does not outrank a blocked or review summary", () => {
+      expect(classifyClaude({ ...reply, lastFocusedAt: now - 60_000, lastActivityAt: now - 1_000, postTurnSummary: { status_category: "review_ready", status_detail: "PR 已开" } }, "idle", { now }).state).toBe("review");
+    });
+  });
   it("ignores a summary written for an earlier reply", () => {
     expect(classifyClaude({ lastAssistantUuid: "u2", postTurnSummaryFor: "u1", postTurnSummary: { status_category: "blocked", needs_action: "旧的" } }, "idle")).toMatchObject({ state: "done", detail: "" });
   });

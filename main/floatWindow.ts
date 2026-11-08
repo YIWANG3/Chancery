@@ -1,8 +1,9 @@
-// The floating window: a small always-on-top view of the sessions that matter right now, for when the main window
-// is out of the way. Its page (#/float) decides what it shows and how big it wants to be; this side owns the
+// The floating window: a small always-on-top view of the sessions that matter right now, standing in for the main
+// window while that is minimized (the two are never shown together; main/index.ts keeps that). Its page (#/float) decides what it shows and how big it wants to be; this side owns the
 // window: on top of everything, on every desktop, draggable, its position remembered, never taking focus when it
 // appears or changes size.
 import { BrowserWindow, ipcMain, screen } from "electron";
+import { keepInside } from "../core/util/rect.js";
 
 export interface FloatDeps {
   createWindow: () => BrowserWindow;
@@ -35,11 +36,16 @@ export function createFloatControl(deps: FloatDeps): FloatControl {
     const saved = deps.position();
     const display = saved ? screen.getDisplayNearestPoint(saved) : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     const { workArea } = display;
-    const fallback = { x: workArea.x + workArea.width - size.width - MARGIN, y: workArea.y + MARGIN };
-    if (!saved) return fallback;
-    const x = Math.min(Math.max(saved.x, workArea.x), workArea.x + workArea.width - size.width);
-    const y = Math.min(Math.max(saved.y, workArea.y), workArea.y + workArea.height - size.height);
-    return { x, y };
+    const corner = saved ?? { x: workArea.x + workArea.width - size.width - MARGIN, y: workArea.y + MARGIN };
+    return keepInside({ ...corner, ...size }, workArea, MARGIN);
+  }
+
+  /** The window at its current size, moved back onto its display if growing pushed it off. */
+  function fit(w: BrowserWindow) {
+    const b = w.getBounds();
+    if (deps.offscreen) return w.setBounds({ x: b.x, y: b.y, ...size });
+    const { workArea } = screen.getDisplayMatching(b);
+    w.setBounds(keepInside({ x: b.x, y: b.y, ...size }, workArea, MARGIN));
   }
 
   function ensure(): BrowserWindow {
@@ -67,7 +73,8 @@ export function createFloatControl(deps: FloatDeps): FloatControl {
       deps.onVisibility(true);
     },
     hide() {
-      if (win && !win.isDestroyed() && win.isVisible()) win.hide();
+      if (!control.isVisible()) return;
+      win!.hide();
       deps.onVisibility(false);
     },
     toggle() {
@@ -79,14 +86,14 @@ export function createFloatControl(deps: FloatDeps): FloatControl {
   };
 
   // The page measures itself after every render and asks for that size. The top-left corner stays put, so a
-  // window that grows or shrinks does so downwards, like a list.
+  // window that grows or shrinks does so downwards, like a list, unless that would push it off the screen, in
+  // which case it is moved back by just enough (it starts out placed for its default size, before the page has
+  // said how wide it really is).
   ipcMain.handle("float:fit", (_ev, s: { width: number; height: number }) => {
     size = { width: Math.round(s.width), height: Math.round(s.height) };
-    if (win && !win.isDestroyed() && win.isVisible()) {
-      const b = win.getBounds();
-      win.setBounds({ x: b.x, y: b.y, ...size });
-    }
+    if (win && !win.isDestroyed() && win.isVisible()) fit(win);
   });
+  ipcMain.handle("float:show", () => control.show());
   ipcMain.handle("float:toggle", () => {
     control.toggle();
     return control.isVisible();

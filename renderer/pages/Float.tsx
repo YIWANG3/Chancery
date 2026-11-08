@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Maximize2 } from "lucide-react";
 import type { Overview, SessionRow } from "@core/overview";
 import { HELD_UP_WINDOW_MS } from "@core/sessionAlerts";
 import { api } from "../api";
@@ -30,7 +30,7 @@ const SHOWN: Bucket[] = ["needs", "look", "running"];
 const DOT: Record<Bucket, string> = { needs: "bg-warn", look: "bg-success", running: "bg-accent", ended: "bg-muted/60" };
 
 /**
- * The floating window's page. Only sessions that still matter are listed (held up, waiting to be looked at,
+ * The floating window's page: the main window, minimized. Only sessions that still matter are listed (held up, waiting to be looked at,
  * running), newest-relevant first, in the overview's own order; finished ones take no room here. The page measures
  * itself after every render and the main process gives the window that size.
  */
@@ -111,22 +111,19 @@ export function Float() {
           <IconButton label={mini ? "展开" : "收起"} onClick={() => setPrefs({ ...prefs, mode: mini ? "full" : "mini" })}>
             {mini ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
           </IconButton>
-          <IconButton label="打开主窗口" onClick={() => void api.main.show()}>
-            <ExternalLink size={13} />
-          </IconButton>
-          <IconButton label="关闭浮窗" onClick={() => void api.float.hide()}>
-            <X size={14} />
+          <IconButton label="回到主窗口" onClick={() => void api.main.show()}>
+            <Maximize2 size={13} />
           </IconButton>
         </span>
       </div>
       {!mini && (
-        <div role="list" aria-label="浮窗里的会话" className="flex flex-col py-1">
+        <div role="list" aria-label="浮窗里的会话" className="flex flex-col gap-0.5 p-1.5">
           {rows.map((s) => (
             <FloatRow key={`${s.app}:${s.id}`} s={s} now={now} />
           ))}
-          {!rows.length && <span className="px-3 py-2 text-muted">{overview ? "没有在等你、待看或在跑的会话。" : "在读…"}</span>}
+          {!rows.length && <span className="px-1.5 py-1.5 text-muted">{overview ? "没有在等你、待看或在跑的会话。" : "在读…"}</span>}
           {live.length > rows.length && (
-            <span className="px-3 py-1 text-[12px] text-muted">
+            <span className="px-1.5 py-1 text-[12px] text-muted">
               还有 {live.length - rows.length} 个，在主窗口里看
             </span>
           )}
@@ -144,12 +141,13 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
   );
 }
 
-/** One session: the exact state as a dot, the title, how long ago, then reply and jump. Clicking the title jumps. */
+/** One session: the exact state as a dot, the title, how long ago, then reply and jump. Clicking the title jumps. The
+ *  row lights up as a rounded card inside the list's 6px frame, like rows in the main window, not edge to edge. */
 function FloatRow({ s, now }: { s: SessionRow; now: number }) {
   const reply = useReply(s, now);
   const heldUp = BUCKET[s.state] === "needs";
   return (
-    <div role="listitem" className="px-3 py-1.5 flex flex-col gap-1.5 hover:bg-panel2">
+    <div role="listitem" className="rounded-md px-1.5 py-1.5 flex flex-col gap-1.5 hover:bg-panel2">
       <div className="flex items-center gap-2">
         <span className={cn("size-2 shrink-0 rounded-full", STATE_DOT[s.state])} title={STATE_LABEL[s.state]} />
         <button type="button" onClick={() => s.open && void api.session.open(s.open)} title={`${STATE_LABEL[s.state]} · ${s.title}${s.detail ? `\n${s.detail}` : ""}`} className="no-drag flex-1 min-w-0 text-left truncate leading-5 hover:underline">

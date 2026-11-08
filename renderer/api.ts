@@ -125,8 +125,9 @@ export const api = {
     reply: (target: { app: "claude" | "codex"; id: string; title: string }, text: string) => call<void>("session:reply", { target, text }),
   },
   main: { show: () => call<void>("main:show") },
-  /** The floating session window. */
+  /** The floating session window: the main window's minimized form. Showing one puts the other away. */
   float: {
+    show: () => call<void>("float:show"),
     toggle: () => call<boolean>("float:toggle"),
     hide: () => call<void>("float:hide"),
     visible: () => call<boolean>("float:visible"),

@@ -102,7 +102,13 @@ const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v)
  * Desktop clears it when a new turn starts, and `postTurnSummaryFor` names the reply it describes, so a summary that
  * does not match the last reply is ignored.
  */
-export function classifyClaude(entry: Record<string, unknown>, liveStatus: string | undefined): SessionVerdict {
+export interface ClaudeClassifyContext {
+  now?: number;
+  /** The session is the one in front in Claude Desktop right now: whatever lands in it is being seen. */
+  watched?: boolean;
+}
+
+export function classifyClaude(entry: Record<string, unknown>, liveStatus: string | undefined, ctx: ClaudeClassifyContext = {}): SessionVerdict {
   if (liveStatus === "busy") return { state: "running", detail: "", basis: "claude agents: busy", turn: "" };
   // An error is current only if nothing was sent after it.
   if (str(entry.error) && num(entry.errorAt) >= num(entry.latestUserFrameAt)) return { state: "error", detail: str(entry.error), basis: "index.error", turn: `error:${num(entry.errorAt)}` };
@@ -116,6 +122,16 @@ export function classifyClaude(entry: Record<string, unknown>, liveStatus: strin
   const turn = str(entry.lastAssistantUuid);
   if (category === "blocked" || needs) return { state: "needs-you", detail: needs || status, basis, turn };
   if (category === "review_ready") return { state: "review", detail: status, basis, turn };
+  // Finished since the person last had it in front. Claude Desktop stamps `lastFocusedAt` when a session is brought
+  // up, not while it stays up, so a reply that landed after that stamp has not been seen, unless the session is the
+  // one in front right now. Codex keeps a read receipt instead; this is the nearest Claude's index gets to one.
+  const focused = num(entry.lastFocusedAt);
+  const activity = num(entry.lastActivityAt);
+  if (focused && activity > focused && !ctx.watched) {
+    const idle = (ctx.now ?? Date.now()) - activity;
+    if (idle > UNREAD_EXPIRE_MS) return { state: "expired", detail: `完成后 ${Math.floor(idle / 86_400_000)} 天没打开`, basis: `${basis} + unopened, expired`, turn };
+    return { state: "unread", detail: status, basis: `${basis} + unopened`, turn };
+  }
   return { state: "done", detail: status, basis, turn };
 }
 
@@ -199,7 +215,7 @@ export async function projectKeyFor(cwd: string): Promise<string> {
 
 type Unplaced = Omit<SessionRow, "projectKey">;
 
-async function readClaude(home: string, claudeBin: string, since: number, errors: string[]): Promise<Unplaced[]> {
+async function readClaude(home: string, claudeBin: string, since: number, now: number, claudeInFront: boolean, errors: string[]): Promise<Unplaced[]> {
   const root = desktopIndexRoot(home);
   if (!(await isDirectory(root))) return [];
   const live = new Map<string, { status: string; startedAt: number }>();
@@ -208,7 +224,7 @@ async function readClaude(home: string, claudeBin: string, since: number, errors
   } catch (err) {
     errors.push(`claude agents：${err instanceof Error ? err.message : String(err)}（Claude 的会话不会显示为运行中）`);
   }
-  const out: Unplaced[] = [];
+  const found: Array<{ entry: Record<string, unknown>; agent: { status: string; startedAt: number } | undefined; id: string; at: number }> = [];
   for (const org of await readdir(root).catch(() => [] as string[])) {
     for (const user of await readdir(join(root, org)).catch(() => [] as string[])) {
       const dir = join(root, org, user);
@@ -226,20 +242,21 @@ async function readClaude(home: string, claudeBin: string, since: number, errors
         // has seen no turn since: an idle session reopened today is in today's window, not last week's.
         const at = Math.max(num(entry.lastActivityAt), agent?.startedAt ?? 0);
         if (at < since) continue;
-        const id = str(entry.sessionId) || f.slice(0, -5);
-        out.push({
-          app: "claude",
-          id,
-          title: str(entry.title),
-          at,
-          cwd: str(entry.originCwd) || str(entry.cwd),
-          open: { kind: "desktop", desktopSessionId: id },
-          ...classifyClaude(entry, agent?.status),
-        });
+        found.push({ entry, agent, id: str(entry.sessionId) || f.slice(0, -5), at });
       }
     }
   }
-  return out;
+  // While Claude Desktop is the app in front, the session it brought up last is the one on screen.
+  const watched = claudeInFront ? found.reduce<(typeof found)[number] | null>((best, f) => (num(f.entry.lastFocusedAt) > num(best?.entry.lastFocusedAt) ? f : best), null) : null;
+  return found.map(({ entry, agent, id, at }) => ({
+    app: "claude",
+    id,
+    title: str(entry.title),
+    at,
+    cwd: str(entry.originCwd) || str(entry.cwd),
+    open: { kind: "desktop", desktopSessionId: id },
+    ...classifyClaude(entry, agent?.status, { now, watched: watched?.id === id }),
+  }));
 }
 
 interface CodexThreadRow {
@@ -340,6 +357,9 @@ export interface OverviewOptions {
    *  folders since deleted. There is nothing to go back to in them, so they are left out by default. */
   includeGone?: boolean;
   now?: number;
+  /** Claude Desktop is the app in front: the session it shows is being watched, so a reply landing there is seen,
+   *  not "finished and unopened". */
+  claudeInFront?: boolean;
 }
 
 export async function buildOverview(opts: OverviewOptions = {}): Promise<Overview> {
@@ -348,7 +368,7 @@ export async function buildOverview(opts: OverviewOptions = {}): Promise<Overvie
   const since = now - (opts.days ?? 14) * 86_400_000;
   const errors: string[] = [];
   const [claude, codex] = await Promise.all([
-    readClaude(home, opts.claudeBin ?? "claude", since, errors).catch((err) => {
+    readClaude(home, opts.claudeBin ?? "claude", since, now, opts.claudeInFront ?? false, errors).catch((err) => {
       errors.push(`Claude 桌面端的会话索引：${err instanceof Error ? err.message : String(err)}`);
       return [] as Unplaced[];
     }),

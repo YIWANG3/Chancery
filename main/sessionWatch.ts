@@ -92,7 +92,8 @@ export function startSessionWatch(deps: SessionWatchDeps): SessionWatch {
   }
 
   async function read(): Promise<Overview> {
-    const overview = await buildOverview({ claudeBin: deps.claudeBin(), home: deps.home });
+    const front = await frontmostBundleId();
+    const overview = await buildOverview({ claudeBin: deps.claudeBin(), home: deps.home, claudeInFront: front === APP_BUNDLE.claude });
     snapshot = overview;
     const alerts = tracker.feed(overview);
     const print = fingerprint(overview);

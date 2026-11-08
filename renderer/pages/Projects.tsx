@@ -1,38 +1,127 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, Settings2 } from "lucide-react";
 import type { Project } from "@core/types";
+import type { Overview, SessionApp, SessionRow } from "@core/overview";
 import { api, type DiscoveredProject } from "../api";
+import { cn } from "../cn";
 import { fmtTime, useChanged } from "../hooks";
-import { Button, Empty, Pill, SectionLabel } from "../ui";
+import { APP_LABEL, BUCKET, BUCKET_LABEL, SessionItem, WINDOWS, ago, type Bucket, type WindowDays } from "../sessionBits";
+import { Button, Empty, Pill, Select } from "../ui";
 
 const SOURCE_LABEL: Record<string, string> = { "claude-desktop": "Claude 桌面端", "claude-cli": "Claude CLI", codex: "Codex" };
+const EXECUTOR_LABEL: Record<Project["default_executor"], string> = { "claude-desktop": "Claude", codex: "Codex", dsh: "dsh" };
 
+const KEY = "chancery.projects";
+interface Prefs {
+  days: WindowDays;
+  /** Projects whose sessions are folded away; the header with its counts still shows. */
+  folded: string[];
+}
+const load = (): Prefs => {
+  try {
+    return { days: "3", folded: [], ...(JSON.parse(localStorage.getItem(KEY) ?? "") as Partial<Prefs>) };
+  } catch {
+    return { days: "3", folded: [] };
+  }
+};
+
+const tilde = (dir: string) => dir.replace(/^\/Users\/[^/]+/, "~");
+const same = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
+
+/** One project on the page: the sessions in the window grouped under it, and its registration if it has one. */
+interface Row {
+  key: string;
+  name: string;
+  dir: string;
+  sessions: SessionRow[];
+  counts: Record<Bucket, number>;
+  apps: SessionApp[];
+  lastAt: number;
+  registered: Project | null;
+}
+
+/**
+ * Every project, each with its sessions under it: the same sessions as the session page, grouped the other way
+ * round. A project is here as soon as either app has worked in it; registering it with the platform is a small
+ * extra (the daemon can then dispatch to it) whose few settings sit folded behind a gear.
+ */
 export function Projects() {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [registered, setRegistered] = useState<Project[]>([]);
   const [found, setFound] = useState<DiscoveredProject[] | null>(null);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [prefs, setPrefs] = useState<Prefs>(load);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  useChanged(
+    () => {
+      api.sessions
+        .overview()
+        .then((o) => {
+          setOverview(o);
+          setFailed(null);
+        })
+        .catch((err: unknown) => setFailed(err instanceof Error ? err.message : String(err)));
+    },
+    [],
+    { everyMs: 10_000 },
+  );
   const refresh = async () => {
-    setProjects(await api.projects.list());
-    const f = await api.projects.discover();
-    setFound(f);
-    setPicked(new Set(f.filter((p) => p.sources.includes("claude-desktop")).map((p) => p.dir)));
+    setRegistered(await api.projects.list());
+    setFound(await api.projects.discover());
   };
   useChanged(() => void refresh());
-  useEffect(() => void refresh(), []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(prefs));
+    } catch {}
+  }, [prefs]);
+
+  const now = overview?.readAt ?? Date.now();
+  const rows = useMemo<Row[]>(() => {
+    const since = now - Number(prefs.days) * 86_400_000;
+    const byKey = new Map<string, Row>();
+    for (const s of overview?.sessions ?? []) {
+      if (s.at < since) continue;
+      let r = byKey.get(s.projectKey);
+      if (!r) {
+        const g = overview?.projects.find((p) => p.key === s.projectKey);
+        r = { key: s.projectKey, name: g?.name ?? s.projectKey.split("/").pop() ?? s.projectKey, dir: g?.dir ?? s.projectKey, sessions: [], counts: { needs: 0, look: 0, running: 0, ended: 0 }, apps: [], lastAt: 0, registered: null };
+        byKey.set(s.projectKey, r);
+      }
+      r.sessions.push(s);
+      r.counts[BUCKET[s.state]] += 1;
+      r.lastAt = Math.max(r.lastAt, s.at);
+      if (!r.apps.includes(s.app)) r.apps.push(s.app);
+    }
+    // The overview's sessions are already in order (held up first, newest first within a state), so each group is too.
+    const withSessions = [...byKey.values()].sort((a, b) => b.counts.needs - a.counts.needs || b.counts.running - a.counts.running || b.lastAt - a.lastAt);
+    const quiet: Row[] = [];
+    for (const p of registered) {
+      const hit = withSessions.find((r) => same(r.dir, p.dir));
+      if (hit) hit.registered = p;
+      else quiet.push({ key: p.dir, name: p.name, dir: p.dir, sessions: [], counts: { needs: 0, look: 0, running: 0, ended: 0 }, apps: [], lastAt: 0, registered: p });
+    }
+    // Registered projects with nothing in the window come last, by name.
+    return [...withSessions, ...quiet.sort((a, b) => a.name.localeCompare(b.name))];
+  }, [overview, registered, prefs.days, now]);
+
+  // Directories the apps have used that are neither registered nor on the page above: the quiet ones.
+  const others = useMemo(() => (found ?? []).filter((f) => !rows.some((r) => same(r.dir, f.dir))), [found, rows]);
+  const sessionTotal = rows.reduce((n, r) => n + r.sessions.length, 0);
 
   const importDirs = async (dirs: string[]) => {
     if (!dirs.length) return;
     setBusy(true);
     setError("");
     const results = await api.projects.registerMany(dirs);
-    const failed = results.filter((r) => !r.ok);
-    if (failed.length) setError(failed.map((f) => `${f.dir.split("/").pop()}：${f.error?.replace(/^.*Error: /, "")}`).join("；"));
+    const bad = results.filter((r) => !r.ok);
+    if (bad.length) setError(bad.map((f) => `${f.dir.split("/").pop()}：${f.error?.replace(/^.*Error: /, "")}`).join("；"));
     await refresh();
     setBusy(false);
   };
-  const register = async () => {
+  const pick = async () => {
     setError("");
     try {
       await api.projects.register();
@@ -41,103 +130,208 @@ export function Projects() {
       setError(String(err).replace(/^.*Error: /, ""));
     }
   };
+  const fold = (key: string, folded: boolean) => setPrefs({ ...prefs, folded: folded ? [...prefs.folded, key] : prefs.folded.filter((k) => k !== key) });
+
+  if (!overview) return <Empty>{failed ? `读不到会话：${failed}` : "在读两家的会话…"}</Empty>;
 
   return (
-    <div className="px-8 pb-10 flex flex-col gap-10 max-w-[1040px]">
-      <section className="flex flex-col gap-3">
-        <SectionLabel right={<Button onClick={register}>选一个目录</Button>}>已注册 · {projects.length}</SectionLabel>
-        {!projects.length && <Empty>还没有项目。下面是本机 Claude 和 Codex 用过的 git 目录，勾上导入。</Empty>}
-        <div className="flex flex-col gap-3">
-          {projects.map((p) => (
-            <ProjectRow key={p.id} p={p} />
-          ))}
-        </div>
-      </section>
+    <div className="px-8 pb-12 flex flex-col gap-8 max-w-[1040px]">
+      <div className="flex items-center gap-3">
+        <span className="text-[13px] text-muted tabular-nums">
+          {rows.length} 个项目 · {sessionTotal} 个会话
+        </span>
+        <Select ariaLabel="时间范围" className="!w-auto ml-auto" value={prefs.days} onChange={(days) => setPrefs({ ...prefs, days })} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} />
+        <Button onClick={pick} title="把一个 git 目录注册到平台：守护进程能往那里派活，也能给它设执行器、并发、模型">
+          选一个目录
+        </Button>
+      </div>
 
-      <section className="flex flex-col gap-3">
-        <SectionLabel
-          right={
-            <>
-              <Button disabled={busy || !picked.size} kind="primary" onClick={() => importDirs([...picked])}>
-                导入所选{picked.size ? ` ${picked.size}` : ""}
-              </Button>
-              <Button disabled={busy || !found?.length} onClick={() => importDirs((found ?? []).map((p) => p.dir))}>
-                全部导入
-              </Button>
-            </>
-          }
-        >
-          发现的 · {found?.length ?? "…"}
-          <span className="ml-2.5 opacity-70">Claude 桌面端、Claude CLI、Codex 用过的 git 目录</span>
-        </SectionLabel>
-        {error && <div className="text-error text-[13px]">{error}</div>}
-        {found && !found.length && <Empty>没有新的了。</Empty>}
-        <div className="flex flex-col gap-0.5 -mx-3">
-          {(found ?? []).map((p) => (
-            <label key={p.dir} className="flex items-center gap-3.5 hover:bg-panel2 rounded-md px-3 h-10 text-[14px]">
-              <input
-                type="checkbox"
-                checked={picked.has(p.dir)}
-                onChange={(e) => {
-                  const next = new Set(picked);
-                  if (e.target.checked) next.add(p.dir);
-                  else next.delete(p.dir);
-                  setPicked(next);
-                }}
-              />
-              <span className="font-medium">{p.dir.split("/").pop()}</span>
-              <span className="text-muted truncate min-w-0">{p.dir.replace(/^\/Users\/[^/]+/, "~")}</span>
-              <span className="ml-auto flex gap-2 shrink-0 items-center">
-                {p.sources.map((s) => (
-                  <Pill key={s}>{SOURCE_LABEL[s] ?? s}</Pill>
-                ))}
-                {p.sessions > 0 && <Pill>{p.sessions} 个会话</Pill>}
-                {p.lastActive && <span className="text-muted text-[12.5px] w-[96px] text-right tabular-nums">{fmtTime(p.lastActive)}</span>}
-              </span>
-            </label>
+      {(failed || overview.errors.length > 0 || error) && (
+        <div className="rounded-md bg-panel2 px-4 py-3 text-[13px] flex flex-col gap-1">
+          {failed && <span className="text-warn">刷新失败，显示的是上一次读到的：{failed}</span>}
+          {overview.errors.map((e) => (
+            <span key={e} className="text-warn">
+              读不到：{e}
+            </span>
           ))}
+          {error && <span className="text-error">{error}</span>}
         </div>
-      </section>
+      )}
+
+      {!rows.length && <Empty>这段时间两家都没有会话。换个时间范围，或者选一个目录注册。</Empty>}
+
+      {rows.map((r) => (
+        <ProjectSection key={r.key} row={r} now={now} folded={prefs.folded.includes(r.key)} onFold={(v) => fold(r.key, v)} onRegister={() => importDirs([r.dir])} busy={busy} />
+      ))}
+
+      {others.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <div className="flex items-center gap-3 min-h-9 text-[13px] text-muted">
+            <span>
+              其他用过的目录 · {others.length}
+              <span className="ml-2.5 opacity-70">{SOURCE_LABEL["claude-desktop"]}、{SOURCE_LABEL["claude-cli"]}、{SOURCE_LABEL.codex} 用过，这段时间没有会话</span>
+            </span>
+            <Button size="sm" kind="ghost" className="ml-auto" disabled={busy} onClick={() => importDirs(others.map((p) => p.dir))}>
+              全部注册
+            </Button>
+          </div>
+          <div className="flex flex-col gap-0.5 -mx-3">
+            {others.map((p) => (
+              <div key={p.dir} className="group flex items-center gap-3.5 hover:bg-panel2 rounded-md px-3 h-10 text-[14px]">
+                <span className="font-medium">{p.dir.split("/").pop()}</span>
+                <button type="button" className="text-[13px] text-muted hover:text-text truncate min-w-0" title="在访达里显示" onClick={() => api.shell.reveal(p.dir)}>
+                  {tilde(p.dir)}
+                </button>
+                <span className="ml-auto flex gap-2 shrink-0 items-center text-[12.5px] text-muted">
+                  {p.sources.map((s) => (
+                    <Pill key={s}>{SOURCE_LABEL[s] ?? s}</Pill>
+                  ))}
+                  {p.sessions > 0 && <span className="tabular-nums">共 {p.sessions} 个会话</span>}
+                  {p.lastActive && <span className="w-[96px] text-right tabular-nums">{fmtTime(p.lastActive)}</span>}
+                  <Button size="sm" kind="ghost" disabled={busy} onClick={() => importDirs([p.dir])}>
+                    注册
+                  </Button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
 
-function ProjectRow({ p }: { p: Project }) {
-  const update = (patch: Partial<Project>) => api.projects.update(p.id, patch);
+const COUNTED: Bucket[] = ["needs", "look", "running"];
+/** Sessions shown under a project at a time; the rest are a page away, so one busy project does not push the next
+ *  one off the screen. The order within a project puts what needs a person on the first page. */
+const PAGE = 8;
+const COUNT_TONE: Record<Bucket, string> = { needs: "text-warn", look: "text-success", running: "text-accent", ended: "text-muted" };
+
+/** A project: a heading with how its sessions stand, then the sessions themselves. Its platform settings, when it
+ *  is registered, stay folded behind the gear; otherwise a 注册 button takes their place. */
+function ProjectSection({ row: r, now, folded, onFold, onRegister, busy }: { row: Row; now: number; folded: boolean; onFold: (v: boolean) => void; onRegister: () => void; busy: boolean }) {
+  const [settings, setSettings] = useState(false);
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(r.sessions.length / PAGE));
+  // A narrower window or a session that left can take the current page away; stay on the last one that exists.
+  const at = Math.min(page, pages - 1);
+  const shown = r.sessions.slice(at * PAGE, at * PAGE + PAGE);
+  const Chevron = folded ? ChevronRight : ChevronDown;
   return (
-    <div className="bg-panel2 rounded-lg px-5 py-4 flex flex-col gap-3">
-      <div className="flex items-center gap-3.5">
-        <span className="font-medium text-[15px]">{p.name}</span>
-        {p.repo && (
-          <button className="text-[13px] text-muted hover:text-text" onClick={() => api.shell.open(`https://github.com/${p.repo}`)}>
-            {p.repo}
-          </button>
-        )}
-        <button className="text-[13px] text-muted hover:text-text ml-auto truncate" onClick={() => api.shell.reveal(p.dir)}>
-          {p.dir.replace(/^\/Users\/[^/]+/, "~")}
+    <section aria-label={r.name} className="flex flex-col gap-1">
+      <div className="flex items-center gap-3 min-h-9">
+        <button type="button" aria-label={folded ? `展开 ${r.name}` : `收起 ${r.name}`} aria-expanded={!folded} onClick={() => onFold(!folded)} className="no-drag -ml-1.5 size-6 inline-flex items-center justify-center rounded text-muted hover:text-text hover:bg-panel2">
+          <Chevron size={15} />
         </button>
-      </div>
-      <div className="flex items-center gap-6 text-[13px] text-muted">
-        <label className="flex items-center gap-2.5">
-          执行器
-          <select value={p.default_executor} onChange={(e) => update({ default_executor: e.target.value as Project["default_executor"] })} className="h-8 min-h-0 py-0">
-            <option value="claude-desktop">Claude</option>
-            <option value="codex">Codex</option>
-            <option value="dsh">dsh</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-2.5">
-          并发
-          <input type="number" min={1} max={8} value={p.parallel} onChange={(e) => update({ parallel: Number(e.target.value) || 1 })} className="w-[64px] h-8 min-h-0 py-0 tabular-nums" />
-        </label>
-        <label className="flex items-center gap-2.5">
-          模型
-          <input value={p.default_model ?? ""} placeholder="默认" onChange={(e) => update({ default_model: e.target.value || null })} className="w-[160px] h-8 min-h-0 py-0" />
-        </label>
-        <span>
-          分支 <span className="font-mono">{p.default_branch}</span>
+        <h2 className="shrink-0 text-[15px] font-medium leading-6">{r.name}</h2>
+        <span className="shrink-0 flex items-center gap-2.5 text-[13px] tabular-nums whitespace-nowrap">
+          {COUNTED.filter((b) => r.counts[b] > 0).map((b) => (
+            <span key={b} className={COUNT_TONE[b]}>
+              {BUCKET_LABEL[b]} {r.counts[b]}
+            </span>
+          ))}
+          <span className="text-muted">{r.sessions.length ? `${r.sessions.length} 个会话` : "这段时间没有会话"}</span>
+        </span>
+        <span className="ml-auto flex items-center gap-3 text-[13px] text-muted min-w-0">
+          {r.apps.length > 0 && <span className="shrink-0">{r.apps.map((a) => APP_LABEL[a]).join(" · ")}</span>}
+          {r.lastAt > 0 && (
+            <span className="shrink-0 tabular-nums" title={new Date(r.lastAt).toLocaleString()}>
+              {ago(r.lastAt, now)}
+            </span>
+          )}
+          <button type="button" className="truncate hover:text-text" title="在访达里显示" onClick={() => api.shell.reveal(r.dir)}>
+            {tilde(r.dir)}
+          </button>
+          {r.registered ? (
+            <button
+              type="button"
+              aria-label={`${r.name} 的平台设置`}
+              aria-expanded={settings}
+              title="平台设置：执行器、并发、模型"
+              onClick={() => setSettings((v) => !v)}
+              className={cn("no-drag size-7 shrink-0 inline-flex items-center justify-center rounded-md hover:text-text hover:bg-panel2", settings ? "text-text bg-panel2" : "text-muted")}
+            >
+              <Settings2 size={15} />
+            </button>
+          ) : (
+            <Button size="sm" kind="ghost" disabled={busy} onClick={onRegister} title="注册到平台：守护进程能往这个目录派活，也能给它设执行器、并发、模型">
+              注册
+            </Button>
+          )}
         </span>
       </div>
+      {r.registered && settings && <ProjectSettings p={r.registered} />}
+      {!folded && r.sessions.length > 0 && (
+        <>
+          <div role="list" aria-label={`${r.name} 的会话`} className="flex flex-col gap-0.5 -mx-3">
+            {shown.map((s) => (
+              <SessionItem key={`${s.app}:${s.id}`} s={s} now={now} />
+            ))}
+          </div>
+          {pages > 1 && (
+            <nav aria-label={`${r.name} 的会话翻页`} className="flex items-center justify-end gap-1 h-8 text-[13px] text-muted tabular-nums">
+              <span className="mr-1">
+                {at * PAGE + 1}–{at * PAGE + shown.length} / {r.sessions.length}
+              </span>
+              <button type="button" aria-label="上一页" disabled={at === 0} onClick={() => setPage(at - 1)} className="no-drag size-7 inline-flex items-center justify-center rounded-md hover:text-text hover:bg-panel2 disabled:opacity-40 disabled:pointer-events-none">
+                <ChevronLeft size={15} />
+              </button>
+              <button type="button" aria-label="下一页" disabled={at >= pages - 1} onClick={() => setPage(at + 1)} className="no-drag size-7 inline-flex items-center justify-center rounded-md hover:text-text hover:bg-panel2 disabled:opacity-40 disabled:pointer-events-none">
+                <ChevronRight size={15} />
+              </button>
+            </nav>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** The few things the platform needs to know to dispatch to a project. Every control saves on its own. */
+function ProjectSettings({ p }: { p: Project }) {
+  const [model, setModel] = useState(p.default_model ?? "");
+  useEffect(() => setModel(p.default_model ?? ""), [p.default_model]);
+  const update = (patch: Partial<Project>) => void api.projects.update(p.id, patch);
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md bg-panel2 px-4 py-3 text-[13px] text-muted">
+      <label className="flex items-center gap-2.5">
+        执行器
+        <select aria-label={`${p.name} 的执行器`} value={p.default_executor} onChange={(e) => update({ default_executor: e.target.value as Project["default_executor"] })} className="h-8 min-h-0 py-0 !bg-panel">
+          {(Object.keys(EXECUTOR_LABEL) as Project["default_executor"][]).map((k) => (
+            <option key={k} value={k}>
+              {EXECUTOR_LABEL[k]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex items-center gap-2.5">
+        并发
+        <input aria-label={`${p.name} 的并发`} type="number" min={1} max={8} value={p.parallel} onChange={(e) => update({ parallel: Number(e.target.value) || 1 })} className="w-[64px] h-8 min-h-0 py-0 tabular-nums !bg-panel" />
+      </label>
+      <label className="flex items-center gap-2.5">
+        模型
+        <input
+          aria-label={`${p.name} 的模型`}
+          value={model}
+          placeholder="默认"
+          onChange={(e) => setModel(e.target.value)}
+          onBlur={() => {
+            if (model !== (p.default_model ?? "")) update({ default_model: model || null });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+          className="w-[160px] h-8 min-h-0 py-0 !bg-panel"
+        />
+      </label>
+      <span>
+        分支 <span className="font-mono">{p.default_branch}</span>
+      </span>
+      {p.repo && (
+        <button type="button" className="hover:text-text" onClick={() => api.shell.open(`https://github.com/${p.repo}`)}>
+          {p.repo}
+        </button>
+      )}
     </div>
   );
 }

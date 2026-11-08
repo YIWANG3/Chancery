@@ -42,6 +42,7 @@ export interface Notifier {
 
 const PANEL_WIDTH = 360;
 const PANEL_ROW = 84;
+/** The frame around the rows, so a highlighted row sits inside the panel instead of filling it. */
 const PANEL_PAD = 12;
 const PANEL_MARGIN = 16;
 const PANEL_MAX = 4;

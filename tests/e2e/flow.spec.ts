@@ -17,8 +17,11 @@ test("注册一个 git 目录为项目", async ({ win, env }) => {
   const results = await win.evaluate((dir) => window.chancery.invoke("projects:registerMany", { dirs: [dir] }), env.projectDir);
   expect(results).toEqual([{ dir: env.projectDir, ok: true }]);
   await win.getByRole("button", { name: "项目", exact: true }).click();
-  await expect(win.getByText("demo-project", { exact: true })).toBeVisible();
-  await expect(win.getByText("已注册 · 1")).toBeVisible();
+  // A registered project is on the page even before either app has a session in it, with its settings behind the gear.
+  await expect(win.getByRole("heading", { name: "demo-project" })).toBeVisible();
+  await expect(win.getByText("这段时间没有会话")).toBeVisible();
+  await win.getByRole("button", { name: "demo-project 的平台设置" }).click();
+  await expect(win.getByRole("combobox", { name: "demo-project 的执行器" })).toBeVisible();
 });
 
 test("新工单进收件", async ({ win }) => {
@@ -210,6 +213,17 @@ test("会话停下来等你：列表、导航角标和 Dock 角标都跟着变�
   await expect(win.getByRole("button", { name: "会话", exact: true })).toBeVisible();
   expect(await app.evaluate(({ app: a }) => a.dock?.getBadge())).toBe("");
   expect(alerted()).toBe(1);
+
+  // A turn that finished after the person last had the session in front is waiting to be looked at, like a Codex
+  // thread with an unread receipt. While Claude is the app in front, the session it brought up last counts as being
+  // watched, so that one is made another session here: the first one, stamped focused later than anything else.
+  writeClaudeSession(env, "local_e2e-1", { title: "端到端会话", lastFocusedAt: Date.now() + 60_000, lastAssistantUuid: "u3", postTurnSummaryFor: "u3", postTurnSummary: { status_category: "completed", status_detail: "按 B 方案做完了" } });
+  writeClaudeSession(env, "local_e2e-2", { title: "跑完没看的会话", lastFocusedAt: Date.now() - 60_000, lastAssistantUuid: "v1", postTurnSummaryFor: "v1", postTurnSummary: { status_category: "completed", status_detail: "改完了" } });
+  await expect(win.getByRole("radio", { name: "待看 1" })).toBeVisible({ timeout: 30_000 });
+  await expect(win.getByRole("listitem").filter({ hasText: "跑完没看的会话" }).getByText("完成未读")).toBeVisible();
+  // Brought up since: Claude Desktop stamps it focused, and it leaves the waiting list.
+  writeClaudeSession(env, "local_e2e-2", { title: "跑完没看的会话", lastFocusedAt: Date.now() + 60_000, lastActivityAt: Date.now() - 1_000, lastAssistantUuid: "v1", postTurnSummaryFor: "v1", postTurnSummary: { status_category: "completed", status_detail: "改完了" } });
+  await expect(win.getByRole("radio", { name: "待看 0" })).toBeVisible({ timeout: 30_000 });
   expect(readFileSync(join(env.userData, "logs", "chancery.log"), "utf8")).toContain("finished claude:local_e2e-1");
 });
 
@@ -316,11 +330,15 @@ test("看板和列表可以切换：看板按 等我 / 待看 / 运行中 / 已�
   await expect(win.getByRole("listitem").filter({ hasText: "另一个目录里的会话" })).toBeVisible();
 });
 
-test("置顶浮窗：收起只剩计数，展开最多列 5 条，已结束的不占位置", async ({ app, win }) => {
-  await win.evaluate(() => window.chancery.invoke("float:toggle"));
+test("最小化到浮窗：主窗口收起；收起只剩计数，展开最多列 5 条，已结束的不占位置；回来时浮窗关掉", async ({ app, win }) => {
+  const mainVisible = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => /#\/(tickets|sessions)/.test(w.webContents.getURL()))?.isVisible() ?? false);
+  expect(await mainVisible()).toBe(true);
+  await win.getByRole("button", { name: "最小化到浮窗" }).click();
   const findFloat = () => app.windows().find((w) => w.url().includes("#/float"));
   await expect.poll(() => Boolean(findFloat()), { timeout: 30_000 }).toBe(true);
   const float = findFloat()!;
+  // One or the other, never both.
+  await expect.poll(mainVisible).toBe(false);
   // Still here from the earlier tests: one session waiting to be looked at, one running, one finished.
   await expect(float.getByRole("list", { name: "浮窗里的会话" })).toBeVisible();
   await expect(float.getByRole("listitem")).toHaveCount(2);
@@ -343,6 +361,7 @@ test("置顶浮窗：收起只剩计数，展开最多列 5 条，已结束的�
   await expect(float.getByRole("listitem")).toHaveCount(2);
   await expect.poll(height).toBe(open);
 
-  await float.getByRole("button", { name: "关闭浮窗" }).click();
+  await float.getByRole("button", { name: "回到主窗口" }).click();
   await expect.poll(() => win.evaluate(() => window.chancery.invoke("float:visible"))).toBe(false);
+  await expect.poll(mainVisible).toBe(true);
 });

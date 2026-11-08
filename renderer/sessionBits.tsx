@@ -59,6 +59,14 @@ export const BUCKET: Record<SessionState, Bucket> = {
 export const BUCKET_LABEL: Record<Bucket, string> = { needs: "等我", look: "待看", running: "运行中", ended: "已结束" };
 
 export const APP_LABEL: Record<SessionApp, string> = { claude: "Claude", codex: "Codex" };
+
+/** How far back a page looks. The overview itself reads 14 days; the pages narrow it. */
+export const WINDOWS = [
+  { value: "1", label: "今天" },
+  { value: "3", label: "近 3 天" },
+  { value: "14", label: "近 14 天" },
+] as const;
+export type WindowDays = (typeof WINDOWS)[number]["value"];
 export const OPEN_LABEL: Record<SessionApp, string> = { claude: "在 Claude 桌面端打开这个会话", codex: "在 Codex 应用里打开这个会话" };
 
 export const ago = (at: number, now: number): string => {
@@ -188,3 +196,70 @@ export function ReplyBox({ s, onSent, onCancel, className, stacked }: { s: Sessi
   );
 }
 
+
+export interface ProjectTagProps {
+  name: string;
+  /** Whether the page is already narrowed to this project; clicking then widens it again. */
+  active: boolean;
+  onClick: () => void;
+}
+
+/** A session's project as a small tag. Clicking it narrows the page to that project, or widens it again. */
+export function ProjectTag({ name, active, onClick }: ProjectTagProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={active ? "正在只看这个项目，点一下看全部" : "只看这个项目"}
+      className={cn("no-drag inline-flex items-center h-[22px] max-w-[180px] px-2 rounded text-[12px] whitespace-nowrap hover:bg-hover hover:text-text", active ? "bg-hover text-text" : "bg-panel2 text-muted")}
+    >
+      <span className="truncate">{name}</span>
+    </button>
+  );
+}
+
+/** One session as a row. The title gets whatever width is left; the second line carries its project tag (when the
+ *  list mixes projects) and what the session says about itself, at full strength when it is held up. */
+export function SessionItem({ s, now, project }: { s: SessionRow; now: number; project?: ProjectTagProps }) {
+  const heldUp = BUCKET[s.state] === "needs";
+  const reply = useReply(s, now);
+  const second = project || s.detail;
+  return (
+    <div role="listitem" className="hover:bg-panel2 rounded-md px-3 py-2 flex flex-col gap-2 text-[14px]">
+      <div className="flex items-start gap-3">
+        <span className="w-[84px] shrink-0 leading-6">
+          <State state={s.state} basis={s.basis} />
+        </span>
+        <span className="flex-1 min-w-0 flex flex-col gap-1">
+          <span className="truncate leading-6" title={s.title}>
+            {s.title || "（无标题）"}
+          </span>
+          {second && (
+            <span className="flex flex-wrap lg:flex-nowrap items-start gap-x-2 gap-y-1 text-[13px] leading-[22px] text-muted">
+              {project && (
+                <span className="shrink-0 flex items-center gap-1.5">
+                  <ProjectTag {...project} />
+                  {/* In a narrow window the app's own column is dropped and its name sits here instead. */}
+                  <span className="lg:hidden">{APP_LABEL[s.app]}</span>
+                </span>
+              )}
+              {s.detail && (
+                <span className={cn("w-full lg:w-auto lg:flex-1 min-w-0 line-clamp-2", heldUp && "text-text")} title={s.detail}>
+                  {s.detail}
+                </span>
+              )}
+            </span>
+          )}
+        </span>
+        <span className={cn("w-[48px] shrink-0 text-[13px] text-muted leading-6", project && "hidden lg:block")}>{APP_LABEL[s.app]}</span>
+        <span className="w-[72px] shrink-0 text-right text-[13px] text-muted tabular-nums leading-6 whitespace-nowrap" title={new Date(s.at).toLocaleString()}>
+          {ago(s.at, now)}
+        </span>
+        <span className="w-[52px] shrink-0 h-6 flex items-center justify-end gap-1">{reply.buttons}</span>
+      </div>
+      {reply.open && reply.box({ className: "pl-[96px]" })}
+      {reply.sent && <span className="pl-[96px] text-[13px] text-muted">{reply.sent}</span>}
+    </div>
+  );
+}

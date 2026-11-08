@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bot, FolderGit2, MessagesSquare, Settings as SettingsIcon } from "lucide-react";
+import { Bot, FolderGit2, MessagesSquare, Minimize2, Settings as SettingsIcon } from "lucide-react";
 import { Tickets } from "./pages/Tickets";
 import { Sessions } from "./pages/Sessions";
 import { Projects } from "./pages/Projects";
@@ -64,8 +64,12 @@ export function App() {
         </div>
       </aside>
       <main className="flex-1 min-w-0 flex flex-col my-2 mr-2 rounded-lg border border-line bg-panel overflow-hidden">
-        <div className="drag h-[52px] shrink-0 flex items-center px-8">
+        <div className="drag h-[52px] shrink-0 flex items-center pl-8 pr-4">
           <span className="text-[16px] font-medium">{NAV.find((n) => n.route === page)?.label ?? HIDDEN_TITLE[page] ?? ""}</span>
+          {/* The window's own control, so it sits in the window's corner on every page, apart from any page's filters. */}
+          <button type="button" aria-label="最小化到浮窗" title="最小化到浮窗：收起这个窗口，换成一个总在最前面的小窗，列出在等你、待看和在跑的会话" onClick={() => void api.float.show()} className="no-drag ml-auto size-8 inline-flex items-center justify-center rounded-md text-muted hover:text-text hover:bg-panel2">
+            <Minimize2 size={15} />
+          </button>
         </div>
         <div className="flex-1 min-h-0 overflow-auto">
           {page === "/sessions" && <Sessions />}

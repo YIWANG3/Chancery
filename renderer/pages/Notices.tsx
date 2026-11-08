@@ -3,7 +3,8 @@ import { X } from "lucide-react";
 import { api, type PanelNotice } from "../api";
 
 /** The notice panel: a small window in the corner of the screen that never takes focus. It stands in for system
- *  notifications when macOS refuses them. Each row is 84px tall; the main process sizes the window to the rows. */
+ *  notifications when macOS refuses them. Each row is 84px tall and sits inside a 12px frame, so a hovered row lights
+ *  up as a rounded card with the panel showing around it; the main process sizes the window to the rows plus the frame. */
 export function Notices() {
   const [items, setItems] = useState<PanelNotice[]>([]);
   useEffect(() => {

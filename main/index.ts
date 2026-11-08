@@ -137,6 +137,7 @@ function createMainWindow(): BrowserWindow {
   return win;
 }
 
+/** Brings the main window up. The floating window is its minimized form, so this also puts that away. */
 function showMain() {
   if (!mainWindow) mainWindow = createMainWindow();
   else {
@@ -144,6 +145,7 @@ function showMain() {
     mainWindow.show();
   }
   mainWindow.focus();
+  floatControl?.hide();
 }
 
 function toggleCapture() {
@@ -210,7 +212,7 @@ function refreshAttention() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "打开", click: showMain },
-      { label: floatControl?.isVisible() ? "收起浮窗" : "浮窗", click: () => floatControl?.toggle() },
+      ...(floatControl?.isVisible() ? [] : [{ label: "最小化到浮窗", click: () => floatControl?.show() }]),
       { label: "记一条", click: toggleCapture },
       { type: "separator" },
       ...(n ? [{ label: `${n} 个会话在等你`, enabled: false }, ...waiting, ...(n > TRAY_SESSIONS ? [{ label: `还有 ${n - TRAY_SESSIONS} 个，在窗口里看`, click: showMain }] : []), { type: "separator" as const }] : []),
@@ -220,14 +222,14 @@ function refreshAttention() {
 }
 
 /** A window that floats above everything on every desktop and never comes forward on its own. */
-function floating(route: string, opts: { width: number; height: number; focusable: boolean }): BrowserWindow {
+function floating(route: string, opts: { width: number; height: number; focusable: boolean; movable?: boolean }): BrowserWindow {
   const win = new BrowserWindow({
     width: opts.width,
     height: opts.height,
     type: "panel",
     frame: false,
     resizable: false,
-    movable: false,
+    movable: opts.movable ?? false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -246,19 +248,22 @@ function floating(route: string, opts: { width: number; height: number; focusabl
 }
 
 /** The notice panel: for when system notifications are refused. It never takes focus. */
-const createNoticePanel = () => floating("/notices", { width: 360, height: 108, focusable: false });
+const createNoticePanel = () => floating("/notices", { width: 360, height: 84, focusable: false });
 
-/** The floating session window. It can take focus, since a reply is typed into it, but never comes forward on its own. */
+/** The floating session window: the main window's minimized form, so exactly one of the two is showing. It can take
+ *  focus, since a reply is typed into it, but never comes forward on its own; it is dragged by its header. */
 function setupFloat() {
   floatControl = createFloatControl({
-    createWindow: () => floating("/float", { width: 240, height: 40, focusable: true }),
+    createWindow: () => floating("/float", { width: 240, height: 40, focusable: true, movable: true }),
     position: () => settings.floatPosition,
     savePosition: (p) => {
       settings = { ...settings, floatPosition: p };
       saveSettings(settingsPath, settings);
     },
     offscreen: OFFSCREEN,
-    onVisibility: () => {
+    onVisibility: (visible) => {
+      if (visible) mainWindow?.hide();
+      else if (!mainWindow?.isVisible()) showMain();
       refreshAttention();
       broadcast("chancery:changed");
     },
@@ -376,7 +381,8 @@ if (!app.requestSingleInstanceLock()) {
     } catch (err) {
       log(`boot failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
     }
-    showMain();
+    // Started minimized to the floating window: the main window waits until that is put away.
+    if (!floatControl?.isVisible()) showMain();
     setupTray();
     if (!globalShortcut.register(settings.quickCaptureShortcut, toggleCapture)) log(`shortcut ${settings.quickCaptureShortcut} could not be registered`);
   });

@@ -1,18 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Columns3, List, PictureInPicture2 } from "lucide-react";
+import { Columns3, List } from "lucide-react";
 import type { Overview, SessionApp, SessionRow } from "@core/overview";
 import { api } from "../api";
 import { cn } from "../cn";
 import { useChanged } from "../hooks";
-import { APP_LABEL, BUCKET, BUCKET_LABEL, State, ago, useReply, type Bucket } from "../sessionBits";
+import { APP_LABEL, BUCKET, BUCKET_LABEL, ProjectTag, SessionItem, State, WINDOWS, ago, useReply, type Bucket, type ProjectTagProps, type WindowDays } from "../sessionBits";
 import { Empty, Segmented, Select } from "../ui";
-
-const WINDOWS = [
-  { value: "1", label: "今天" },
-  { value: "3", label: "近 3 天" },
-  { value: "14", label: "近 14 天" },
-] as const;
-type WindowDays = (typeof WINDOWS)[number]["value"];
 
 const BUCKETS = ["needs", "look", "running", "ended"] as const;
 
@@ -103,7 +96,8 @@ export function Sessions() {
 
   const board = filter.view === "board";
   const rows = !board && filter.bucket ? byBucket[filter.bucket] : inProject;
-  const item = (s: SessionRow) => ({ s, now, project: nameOf.get(s.projectKey) ?? "其他", onProject: () => setFilter({ ...filter, project: project === s.projectKey ? "" : s.projectKey }), projectActive: project === s.projectKey });
+  // Every row and card carries its project as a tag; clicking the tag narrows the page to that project, or widens it again.
+  const tagOf = (s: SessionRow) => ({ name: nameOf.get(s.projectKey) ?? "其他", active: project === s.projectKey, onClick: () => setFilter({ ...filter, project: project === s.projectKey ? "" : s.projectKey }) });
 
   return (
     <div className="h-full min-h-0 flex flex-col">
@@ -143,9 +137,6 @@ export function Sessions() {
           options={[{ value: "", label: `全部项目 ${inScope.length}` }, ...projects.map((p) => ({ value: p.key, label: `${p.name} ${p.total}${p.needs ? `（等我 ${p.needs}）` : ""}` }))]}
         />
         <Select ariaLabel="时间范围" className="!w-auto ml-auto" value={filter.days} onChange={(days) => setFilter({ ...filter, days })} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} />
-        <button type="button" aria-label="置顶浮窗" title="置顶浮窗：一个总在最前面的小窗，列出在等你、待看和在跑的会话" onClick={() => void api.float.toggle()} className="no-drag size-9 inline-flex items-center justify-center rounded-md bg-panel2 text-muted hover:text-text hover:bg-hover">
-          <PictureInPicture2 size={16} />
-        </button>
       </div>
 
       {(failed || overview.errors.length > 0) && (
@@ -168,7 +159,7 @@ export function Sessions() {
                 </h2>
                 <div role="list" aria-label={BUCKET_LABEL[b]} className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pb-2">
                   {byBucket[b].map((s) => (
-                    <SessionCard key={`${s.app}:${s.id}`} {...item(s)} />
+                    <SessionCard key={`${s.app}:${s.id}`} s={s} now={now} project={tagOf(s)} />
                   ))}
                   {!byBucket[b].length && <span className="px-1 py-2 text-[13px] text-muted">没有</span>}
                 </div>
@@ -181,7 +172,7 @@ export function Sessions() {
           {!rows.length && <Empty>{inScope.length ? "没有符合筛选的会话。" : "这段时间里两家都没有会话。"}</Empty>}
           <div role="list" className="flex flex-col gap-0.5 -mx-3">
             {rows.map((s) => (
-              <SessionItem key={`${s.app}:${s.id}`} {...item(s)} />
+              <SessionItem key={`${s.app}:${s.id}`} s={s} now={now} project={tagOf(s)} />
             ))}
           </div>
         </div>
@@ -190,72 +181,9 @@ export function Sessions() {
   );
 }
 
-interface ItemProps {
-  s: SessionRow;
-  now: number;
-  /** The session's project, shown as a tag. Clicking it narrows the page to that project, or widens it again. */
-  project: string;
-  projectActive: boolean;
-  onProject: () => void;
-}
-
-function ProjectTag({ name, active, onClick }: { name: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      title={active ? "正在只看这个项目，点一下看全部" : "只看这个项目"}
-      className={cn("no-drag inline-flex items-center h-[22px] max-w-[180px] px-2 rounded text-[12px] whitespace-nowrap hover:bg-hover hover:text-text", active ? "bg-hover text-text" : "bg-panel2 text-muted")}
-    >
-      <span className="truncate">{name}</span>
-    </button>
-  );
-}
-
-/** One session as a row. The title gets whatever width is left; the second line carries its project tag and what
- *  the session says about itself, at full strength when it is held up. */
-function SessionItem({ s, now, project, projectActive, onProject }: ItemProps) {
-  const heldUp = BUCKET[s.state] === "needs";
-  const reply = useReply(s, now);
-  return (
-    <div role="listitem" className="hover:bg-panel2 rounded-md px-3 py-2 flex flex-col gap-2 text-[14px]">
-      <div className="flex items-start gap-3">
-        <span className="w-[84px] shrink-0 leading-6">
-          <State state={s.state} basis={s.basis} />
-        </span>
-        <span className="flex-1 min-w-0 flex flex-col gap-1">
-          <span className="truncate leading-6" title={s.title}>
-            {s.title || "（无标题）"}
-          </span>
-          <span className="flex flex-wrap lg:flex-nowrap items-start gap-x-2 gap-y-1 text-[13px] leading-[22px] text-muted">
-            <span className="shrink-0 flex items-center gap-1.5">
-              <ProjectTag name={project} active={projectActive} onClick={onProject} />
-              {/* In a narrow window the app's own column is dropped and its name sits here instead. */}
-              <span className="lg:hidden">{APP_LABEL[s.app]}</span>
-            </span>
-            {s.detail && (
-              <span className={cn("w-full lg:w-auto lg:flex-1 min-w-0 line-clamp-2", heldUp && "text-text")} title={s.detail}>
-                {s.detail}
-              </span>
-            )}
-          </span>
-        </span>
-        <span className="hidden lg:block w-[48px] shrink-0 text-[13px] text-muted leading-6">{APP_LABEL[s.app]}</span>
-        <span className="w-[72px] shrink-0 text-right text-[13px] text-muted tabular-nums leading-6 whitespace-nowrap" title={new Date(s.at).toLocaleString()}>
-          {ago(s.at, now)}
-        </span>
-        <span className="w-[52px] shrink-0 h-6 flex items-center justify-end gap-1">{reply.buttons}</span>
-      </div>
-      {reply.open && reply.box({ className: "pl-[96px]" })}
-      {reply.sent && <span className="pl-[96px] text-[13px] text-muted">{reply.sent}</span>}
-    </div>
-  );
-}
-
 /** One session as a card on the board. The column already says which question it answers, so the card leads with
  *  the exact state only where a column holds several (出错 and 卡住 sit with 等我). */
-function SessionCard({ s, now, project, projectActive, onProject }: ItemProps) {
+function SessionCard({ s, now, project }: { s: SessionRow; now: number; project: ProjectTagProps }) {
   const heldUp = BUCKET[s.state] === "needs";
   const reply = useReply(s, now);
   return (
@@ -275,7 +203,7 @@ function SessionCard({ s, now, project, projectActive, onProject }: ItemProps) {
         </span>
       )}
       <div className="flex items-center gap-1">
-        <ProjectTag name={project} active={projectActive} onClick={onProject} />
+        <ProjectTag {...project} />
         <span className="ml-auto flex items-center gap-1">{reply.buttons}</span>
       </div>
       {reply.open && reply.box({ stacked: true })}
