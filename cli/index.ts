@@ -31,7 +31,7 @@ const SESSION_STATE_LABEL: Record<SessionState, string> = { "needs-you": "等我
 /** Reads only the two apps' own state, so it runs whether or not the app or its Postgres is up. */
 async function sessions(args: string[]): Promise<void> {
   const now = Date.now();
-  const overview = await buildOverview({ claudeBin: settings.claudeBin, days: Number(flag(args, "days") ?? 14), includeExec: args.includes("--all"), now });
+  const overview = await buildOverview({ claudeBin: settings.claudeBin, days: Number(flag(args, "days") ?? 14), includeExec: args.includes("--all"), includeGone: args.includes("--all"), now });
   if (args.includes("--json")) {
     console.log(JSON.stringify(overview, null, 2));
     return;

@@ -202,9 +202,9 @@ type Unplaced = Omit<SessionRow, "projectKey">;
 async function readClaude(home: string, claudeBin: string, since: number, errors: string[]): Promise<Unplaced[]> {
   const root = desktopIndexRoot(home);
   if (!(await isDirectory(root))) return [];
-  const live = new Map<string, string>();
+  const live = new Map<string, { status: string; startedAt: number }>();
   try {
-    for (const a of await listClaudeAgents(claudeBin)) live.set(a.sessionId, a.status);
+    for (const a of await listClaudeAgents(claudeBin)) live.set(a.sessionId, { status: a.status, startedAt: num(a.startedAt) });
   } catch (err) {
     errors.push(`claude agents：${err instanceof Error ? err.message : String(err)}（Claude 的会话不会显示为运行中）`);
   }
@@ -221,7 +221,10 @@ async function readClaude(home: string, claudeBin: string, since: number, errors
           continue; // half-written by the app; the next read gets it
         }
         if (!isRecord(entry) || entry.isArchived === true) continue;
-        const at = num(entry.lastActivityAt);
+        const agent = live.get(str(entry.cliSessionId));
+        // A session whose process is alive counts as active from when that process started, even when the index
+        // has seen no turn since: an idle session reopened today is in today's window, not last week's.
+        const at = Math.max(num(entry.lastActivityAt), agent?.startedAt ?? 0);
         if (at < since) continue;
         const id = str(entry.sessionId) || f.slice(0, -5);
         out.push({
@@ -231,7 +234,7 @@ async function readClaude(home: string, claudeBin: string, since: number, errors
           at,
           cwd: str(entry.originCwd) || str(entry.cwd),
           open: { kind: "desktop", desktopSessionId: id },
-          ...classifyClaude(entry, live.get(str(entry.cliSessionId))),
+          ...classifyClaude(entry, agent?.status),
         });
       }
     }
@@ -333,6 +336,9 @@ export interface OverviewOptions {
   days?: number;
   /** Also list Codex threads started by `codex exec`. They are never opened in the app, so they stay unread forever. */
   includeExec?: boolean;
+  /** Also list sessions whose directory no longer exists (the "other" group): temporary checkouts of test runs,
+   *  folders since deleted. There is nothing to go back to in them, so they are left out by default. */
+  includeGone?: boolean;
   now?: number;
 }
 
@@ -348,6 +354,7 @@ export async function buildOverview(opts: OverviewOptions = {}): Promise<Overvie
     }),
     readCodex(home, since, opts.includeExec ?? false, now, errors),
   ]);
-  const rows = await Promise.all([...claude, ...codex].map(async (s): Promise<SessionRow> => ({ ...s, projectKey: await projectKeyFor(s.cwd) })));
+  const placed = await Promise.all([...claude, ...codex].map(async (s): Promise<SessionRow> => ({ ...s, projectKey: await projectKeyFor(s.cwd) })));
+  const rows = opts.includeGone ? placed : placed.filter((s) => s.projectKey !== OTHER_PROJECT_KEY);
   return { ...groupByProject(rows), readAt: now, errors };
 }
