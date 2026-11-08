@@ -5,18 +5,30 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A newer push to the same branch supersedes the run in progress.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # No tokens: fake claude / codex / gh, embedded Postgres, the real Electron app.
   fake-cli:
     runs-on: macos-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      # The Electron binary is fetched by its postinstall into this cache, not into npm's.
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run lint
       - run: npm test
       - run: npm run build
       - run: npx playwright test
@@ -24,12 +36,15 @@ jobs:
         if: failure()
         with:
           name: e2e-fake-results
-          path: test-results
+          path: |
+            test-results
+            playwright-report
 
   # Real claude CLI in print mode, served by DeepSeek's Anthropic-compatible endpoint; DeepSeek as the clerk.
   # Needs the DEEPSEEK_API_KEY secret; skipped on forks and pull requests from them.
   real-cli:
     runs-on: macos-latest
+    timeout-minutes: 40
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     needs: fake-cli
     env:
@@ -45,6 +60,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - run: npm install -g @anthropic-ai/claude-code
       - run: |
@@ -55,4 +74,6 @@ jobs:
         if: failure()
         with:
           name: e2e-real-results
-          path: test-results
+          path: |
+            test-results
+            playwright-report

@@ -12,9 +12,13 @@ esac
 
 log="${CHANCERY_FAKE_LOG:?CHANCERY_FAKE_LOG not set}"
 mkdir -p "$log"
+# Two calls can start in the same daemon tick (the clerk sorting two tickets); number them under a lock so neither
+# overwrites the other's record.
+until mkdir "$log/.claude-lock" 2>/dev/null; do sleep 0.02; done
 count=$(ls "$log" | grep -c '^claude-.*\.args$' || true)
 n=$((count + 1))
 printf '%s\n' "$@" > "$log/claude-$n.args"
+rmdir "$log/.claude-lock"
 
 prompt="${@: -1}"
 printf '%s' "$prompt" > "$log/claude-$n.prompt"

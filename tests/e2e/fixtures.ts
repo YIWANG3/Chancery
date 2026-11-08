@@ -2,7 +2,7 @@
 // throwaway git repository to register as a project. `claude`, `codex` and `gh` on PATH are the fakes in ./bin.
 import { _electron as electron, test as base, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,13 +26,20 @@ export interface TestEnv {
   worktreeRoot: string;
   /** Stands in for the home directory the session overview reads Claude Desktop's and Codex's state from. */
   sessionsHome: string;
+  /** This worker's ports: each worker runs its own copy of the app, so two spec files can run side by side. */
+  pgPort: number;
+  mcpPort: number;
 }
 
 /** Writes one entry of Claude Desktop's session index under the stand-in home, the way the app itself would. */
 export function writeClaudeSession(env: TestEnv, id: string, entry: Record<string, unknown>): void {
   const dir = join(env.sessionsHome, "Library", "Application Support", "Claude", "claude-code-sessions", "org", "user");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${id}.json`), JSON.stringify({ sessionId: id, cwd: env.projectDir, originCwd: env.projectDir, isArchived: false, lastActivityAt: Date.now(), ...entry }));
+  // Written whole: the overview only reads `local_*.json`, so a half-written `.tmp` is never picked up by a read
+  // that lands between the two steps.
+  const tmp = join(dir, `${id}.tmp`);
+  writeFileSync(tmp, JSON.stringify({ sessionId: id, cwd: env.projectDir, originCwd: env.projectDir, isArchived: false, lastActivityAt: Date.now(), ...entry }));
+  renameSync(tmp, join(dir, `${id}.json`));
 }
 
 /** Puts one thread, with its newest turn, into stand-ins for the Codex app's two databases. Only the columns the
@@ -68,8 +75,12 @@ export function writeCodexThread(env: TestEnv, id: string, t: { title: string; t
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const fakeBin = join(repoRoot, "tests", "e2e", "bin");
 
-function makeEnv(): TestEnv {
+function makeEnv(workerIndex: number): TestEnv {
   const root = mkdtempSync(join(process.env.CHANCERY_E2E_ROOT ?? tmpdir(), "chancery-e2e-"));
+  // Ports differ from the app's defaults so the tests can run while the real app is open, and from each other so
+  // two workers can run at once.
+  const pgPort = 54339 + workerIndex;
+  const mcpPort = 41720 + workerIndex;
   const userData = join(root, "userData");
   const projectDir = join(root, "demo-project");
   const fakeLog = join(root, "fake-log");
@@ -83,14 +94,14 @@ function makeEnv(): TestEnv {
   git("add", "README.md");
   git("commit", "-q", "-m", "init");
 
-  // Ports and the shortcut differ from the defaults so the tests can run while the real app is open.
+  // The shortcut differs from the default for the same reason as the ports.
   writeFileSync(
     join(userData, "settings.json"),
     JSON.stringify(
       {
         theme: "light",
-        pgPort: 54339,
-        mcpPort: 41720,
+        pgPort,
+        mcpPort,
         worktreeRoot,
         claudeBin: REAL ? (process.env.CHANCERY_E2E_CLAUDE ?? "claude") : join(fakeBin, "claude"),
         claudeLaunchMode: "print",
@@ -113,18 +124,17 @@ function makeEnv(): TestEnv {
       2,
     ),
   );
-  const env = { root, userData, projectDir, fakeLog, worktreeRoot, sessionsHome };
+  const env = { root, userData, projectDir, fakeLog, worktreeRoot, sessionsHome, pgPort, mcpPort };
   writeClaudeSession(env, "local_e2e-1", { title: "端到端会话", lastAssistantUuid: "u1", postTurnSummaryFor: "u1", postTurnSummary: { status_category: "completed", status_detail: "第一轮做完了" } });
   writeCodexThread(env, CODEX_THREAD, { title: "端到端线程", turn: 1, status: "inProgress" });
   return env;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export const test = base.extend<{}, { env: TestEnv; app: ElectronApplication; win: Page }>({
+export const test = base.extend<{ evidence: void }, { env: TestEnv; app: ElectronApplication; win: Page }>({
   env: [
     // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
-      const env = makeEnv();
+    async ({}, use, workerInfo) => {
+      const env = makeEnv(workerInfo.parallelIndex);
       await use(env);
       if (!process.env.CHANCERY_E2E_KEEP) rmSync(env.root, { recursive: true, force: true });
     },
@@ -135,7 +145,9 @@ export const test = base.extend<{}, { env: TestEnv; app: ElectronApplication; wi
       const app = await electron.launch({
         args: [repoRoot],
         // These specs exercise the ticket pipeline, whose page is no longer in the navigation, so start on it.
-        env: { ...process.env, CHANCERY_ROUTE: "/tickets", CHANCERY_USER_DATA: env.userData, CHANCERY_SESSIONS_HOME: env.sessionsHome, CHANCERY_NOTICES: "panel", CHANCERY_OFFSCREEN: "1", CHANCERY_NO_EXTERNAL_OPEN: "1", CHANCERY_AXCTL: join(fakeBin, "axctl"), CHANCERY_FAKE_LOG: env.fakeLog, PATH: REAL ? (process.env.PATH ?? "") : `${fakeBin}:${process.env.PATH ?? ""}` },
+        // The session watch reads every second instead of every ten: the specs that change a session file and wait
+        // for the list to follow would otherwise spend most of their time waiting for the next read.
+        env: { ...process.env, CHANCERY_ROUTE: "/tickets", CHANCERY_USER_DATA: env.userData, CHANCERY_SESSIONS_HOME: env.sessionsHome, CHANCERY_SESSION_POLL_MS: "1000", CHANCERY_NOTICES: "panel", CHANCERY_OFFSCREEN: "1", CHANCERY_NO_EXTERNAL_OPEN: "1", CHANCERY_AXCTL: join(fakeBin, "axctl"), CHANCERY_FAKE_LOG: env.fakeLog, PATH: REAL ? (process.env.PATH ?? "") : `${fakeBin}:${process.env.PATH ?? ""}` },
         timeout: 120_000, // the first start initialises the embedded Postgres cluster
       });
       await use(app);
@@ -150,6 +162,28 @@ export const test = base.extend<{}, { env: TestEnv; app: ElectronApplication; wi
       await use(win);
     },
     { scope: "worker" },
+  ],
+  // When a test fails, what was on every window, the app's log and the fake CLIs' records are attached to the
+  // report. The specs are serial, so without this a failure deep in the chain leaves nothing to look at in CI.
+  evidence: [
+    async ({ app, env }, use, testInfo) => {
+      await use();
+      if (testInfo.status === testInfo.expectedStatus) return;
+      for (const [i, page] of app.windows().entries()) {
+        const name = page.url().split("#")[1]?.replace(/\W+/g, "-").replace(/^-+|-+$/g, "") || `window-${i}`;
+        const path = testInfo.outputPath(`${name}.png`);
+        await page.screenshot({ path, fullPage: true }).then(() => testInfo.attach(`window ${name}`, { path, contentType: "image/png" })).catch(() => {});
+      }
+      const log = join(env.userData, "logs", "chancery.log");
+      if (existsSync(log)) await testInfo.attach("chancery.log", { path: log, contentType: "text/plain" });
+      if (existsSync(env.fakeLog)) {
+        for (const f of readdirSync(env.fakeLog).sort()) {
+          const path = join(env.fakeLog, f);
+          if (!f.startsWith(".")) await testInfo.attach(`fake-log/${f}`, { path, contentType: "text/plain" });
+        }
+      }
+    },
+    { auto: true },
   ],
 });
 

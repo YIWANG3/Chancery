@@ -174,10 +174,10 @@ test("PR 开了之后审计：第一轮没过回炉，第二轮通过进待合�
   await drawer.getByRole("button", { name: "关闭" }).click();
 });
 
-test("设置页显示内置数据库和 MCP 地址", async ({ win }) => {
+test("设置页显示内置数据库和 MCP 地址", async ({ win, env }) => {
   await win.getByRole("button", { name: "设置", exact: true }).click();
   await expect(win.getByText(/内置的 Postgres/)).toBeVisible();
-  await expect(win.getByText(/127\.0\.0\.1:41720\/mcp/).first()).toBeVisible();
+  await expect(win.getByText(`127.0.0.1:${env.mcpPort}/mcp`).first()).toBeVisible();
 });
 
 test("会话页是导航里的第一项，导航里没有工单", async ({ win }) => {
@@ -198,7 +198,7 @@ test("会话页是导航里的第一项，导航里没有工单", async ({ win }
 test("会话停下来等你：列表、导航角标和 Dock 角标都跟着变，并且只记一次提醒", async ({ win, app, env }) => {
   // Claude Desktop rewrites the entry when a turn ends: a new reply, and a summary that says it is blocked.
   writeClaudeSession(env, "local_e2e-1", { title: "端到端会话", lastAssistantUuid: "u2", postTurnSummaryFor: "u2", postTurnSummary: { status_category: "blocked", status_detail: "卡在选型", needs_action: "选 A 方案还是 B 方案" } });
-  // The watch reads every 10 s and tells the window; nothing here reloads or clicks.
+  // The watch reads every second (CHANCERY_SESSION_POLL_MS) and tells the window; nothing here reloads or clicks.
   await expect(win.getByRole("button", { name: /^会话.*1 个在等你/ })).toBeVisible({ timeout: 30_000 });
   await expect(win.getByRole("radio", { name: "等我 1" })).toBeVisible();
   await expect(win.getByText("选 A 方案还是 B 方案")).toBeVisible();
@@ -350,8 +350,12 @@ test("最小化到浮窗：主窗口收起；收起只剩计数，展开最多�
   // It came up without taking focus from the window that opened it.
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.webContents.getURL().includes("#/float") ?? false)).toBe(false);
   const height = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes("#/float"))?.getBounds().height ?? 0);
+  // The page measures itself and asks the main process for that size, so the window catches up with the rows a
+  // moment after they render: a height counts once it matches what the page wants.
+  const wanted = () => float.evaluate(() => Math.min(Math.ceil(document.getElementById("root")!.firstElementChild!.getBoundingClientRect().height), 640));
+  const settled = async () => ((await height()) === (await wanted()) ? height() : -1);
+  await expect.poll(settled).toBeGreaterThan(80);
   const open = await height();
-  expect(open).toBeGreaterThan(80);
 
   await float.getByRole("button", { name: "收起" }).click();
   await expect(float.getByRole("list", { name: "浮窗里的会话" })).toHaveCount(0);
@@ -359,7 +363,7 @@ test("最小化到浮窗：主窗口收起；收起只剩计数，展开最多�
   await expect.poll(height).toBeLessThan(60);
   await float.getByRole("button", { name: "展开" }).click();
   await expect(float.getByRole("listitem")).toHaveCount(2);
-  await expect.poll(height).toBe(open);
+  await expect.poll(settled).toBe(open);
 
   await float.getByRole("button", { name: "回到主窗口" }).click();
   await expect.poll(() => win.evaluate(() => window.chancery.invoke("float:visible"))).toBe(false);

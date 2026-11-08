@@ -69,8 +69,10 @@ export function createFloatControl(deps: FloatDeps): FloatControl {
       const w = ensure();
       const { x, y } = placement();
       w.setBounds({ x, y, ...size });
-      if (!w.isVisible()) w.showInactive();
+      // The main window goes away first. Hidden after this one is up, AppKit would hand its key status to the only
+      // focusable window left, this one, and the float would come up focused after all.
       deps.onVisibility(true);
+      if (!w.isVisible()) w.showInactive();
     },
     hide() {
       if (!control.isVisible()) return;

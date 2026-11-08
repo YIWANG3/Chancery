@@ -14,9 +14,11 @@ esac
 
 log="${CHANCERY_FAKE_LOG:?CHANCERY_FAKE_LOG not set}"
 mkdir -p "$log"
+until mkdir "$log/.axctl-lock" 2>/dev/null; do sleep 0.02; done
 count=$(ls "$log" | grep -c '^axctl-.*\.args$' || true)
 n=$((count + 1))
 printf '%s\n' "$@" > "$log/axctl-$n.args"
+rmdir "$log/.axctl-lock"
 
 prompt=""
 thread=""

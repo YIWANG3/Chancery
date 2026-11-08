@@ -42,8 +42,9 @@ export interface Notifier {
 
 const PANEL_WIDTH = 360;
 const PANEL_ROW = 84;
-/** The frame around the rows, so a highlighted row sits inside the panel instead of filling it. */
-const PANEL_PAD = 12;
+/** The frame around the rows, so a highlighted row sits inside the panel instead of filling it; the same 6px a row
+ *  in the floating window keeps from its edge (renderer/pages/Float.tsx). */
+const PANEL_PAD = 6;
 const PANEL_MARGIN = 16;
 const PANEL_MAX = 4;
 /** A notice leaves the panel by itself after this long; the counts on the dock and the menu bar stay. */
