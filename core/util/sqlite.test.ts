@@ -17,17 +17,18 @@ describe("sqliteJson", () => {
     // The sqlite3 that macOS ships keeps the two side files after its last connection closes; the Codex app's
     // own SQLite removes them. Everything is checkpointed into the main file, so removing them loses nothing.
     for (const side of ["-wal", "-shm"]) rmSync(`${db}${side}`, { force: true });
-    // Whether the plain read-only open refuses this depends on the sqlite3 build (it does on the macOS releases the
-    // Codex app runs on; a newer build on CI opens it). Either way the read below must work and leave no side files,
-    // so the probe only tells which path is being exercised; it is not asserted.
-    let plainOpenFails = false;
+    // What a plain read-only open does with this depends on the sqlite3 build: Apple's refuses it, others create the
+    // two side files. The reader must not depend on either, so the probe is only reported, and whatever it left
+    // behind is removed before the real read.
+    let plainOpen = "works";
     try {
       execFileSync("sqlite3", ["-readonly", db, "SELECT count(*) FROM t"], { stdio: "pipe" });
+      if (existsSync(`${db}-shm`)) plainOpen = "works and creates -shm";
     } catch {
-      plainOpenFails = true;
+      plainOpen = "fails";
     }
     for (const side of ["-wal", "-shm"]) rmSync(`${db}${side}`, { force: true });
-    console.log(`sqlite3 read-only open of an idle WAL database ${plainOpenFails ? "fails here: the immutable fallback is exercised" : "works here: the fallback is not exercised"}`);
+    console.log(`sqlite3 -readonly on an idle WAL database ${plainOpen} on this build`);
 
     expect(await sqliteJson<{ id: number; name: string }>(db, "SELECT id, name FROM t ORDER BY id")).toEqual([
       { id: 1, name: "a" },
@@ -35,6 +36,16 @@ describe("sqliteJson", () => {
     ]);
     expect(existsSync(`${db}-shm`)).toBe(false);
     expect(existsSync(`${db}-wal`)).toBe(false);
+  });
+
+  it("reads through the write-ahead log while the owner's side files are present", async () => {
+    const db = join(dir, "live.sqlite");
+    execFileSync("sqlite3", [db, "PRAGMA journal_mode=WAL; CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1);"]);
+    // Apple's sqlite3 leaves -wal and -shm behind after the last connection closes; the row from the second insert
+    // sits in the -wal until a checkpoint, so reading it proves the plain open was used.
+    execFileSync("sqlite3", [db, "PRAGMA wal_autocheckpoint=0; INSERT INTO t VALUES (2);"]);
+    if (!existsSync(`${db}-shm`)) return; // this sqlite3 build cleans up after itself; nothing to prove here
+    expect(await sqliteJson<{ id: number }>(db, "SELECT id FROM t ORDER BY id")).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
   it("still fails for a file that is not there", async () => {
