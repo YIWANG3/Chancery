@@ -1,5 +1,93 @@
 import { describe, expect, it } from "vitest";
-import { CODEX_STALE_MS, OTHER_PROJECT_KEY, UNREAD_EXPIRE_MS, attentionOf, classifyClaude, classifyCodex, groupByProject, stripWorktree, type SessionRow } from "./overview.js";
+import { CODEX_STALE_MS, OTHER_PROJECT_KEY, OUTCOME_FACTS, PROCESS_FACTS, UNREAD_EXPIRE_MS, attentionOf, claudeFacts, classifyClaude, classifyCodex, decide, decideAll, groupByProject, stripWorktree, type PreparedRow, type SessionFacts, type SessionRow } from "./overview.js";
+
+describe("decide: one table for every source", () => {
+  const base: SessionFacts = { process: "idle", waitingOn: "等你批一个权限", outcome: "completed", outcomeDetail: "上一轮的话", seen: true, childrenRunning: [], idleMs: 60_000, basis: "source.field", turn: "t1", unseenBasis: "unopened" };
+  const CHILDREN = { none: [], "at work": ["子会话"] } as const;
+  const AGE = { fresh: 60_000, old: UNREAD_EXPIRE_MS + 60_000 } as const;
+  const every: Array<{ facts: SessionFacts; line: string }> = [];
+  for (const process of PROCESS_FACTS)
+    for (const outcome of OUTCOME_FACTS)
+      for (const seen of [true, false])
+        for (const children of ["none", "at work"] as const)
+          for (const age of ["fresh", "old"] as const) {
+            const facts = { ...base, process, outcome, seen, childrenRunning: [...CHILDREN[children]], idleMs: AGE[age] };
+            every.push({ facts, line: `${process.padEnd(8)} ${outcome.padEnd(12)} ${(seen ? "seen" : "unseen").padEnd(7)} children ${children.padEnd(8)} ${age.padEnd(6)} → ${decide(facts).state}` });
+          }
+
+  it("covers every combination of the four axes; the whole table is the snapshot", () => {
+    expect(every).toHaveLength(PROCESS_FACTS.length * OUTCOME_FACTS.length * 2 * 2 * 2);
+    expect(every.map((e) => e.line).join("\n")).toMatchSnapshot();
+  });
+  it("lets a live process outrank whatever the last turn said", () => {
+    for (const { facts } of every) {
+      const { state, turn } = decide(facts);
+      if (facts.process === "running") expect([state, turn]).toEqual(["running", ""]);
+      if (facts.process === "stalled") expect(state).toBe("stuck");
+      if (facts.process === "waiting") expect([state, decide(facts).detail]).toEqual(["needs-you", "等你批一个权限"]);
+    }
+  });
+  it("keeps a failed turn the session's own problem, sub-sessions or not", () => {
+    for (const { facts } of every) if (facts.process === "idle" && facts.outcome === "failed") expect(decide(facts).state).toBe("error");
+  });
+  it("waits on sub-sessions at work whatever else the turn said, short of a failure", () => {
+    for (const { facts } of every) {
+      if (facts.process !== "idle" || facts.outcome === "failed") continue;
+      const v = decide(facts);
+      if (facts.childrenRunning.length) expect(v).toMatchObject({ state: "delegated", detail: "等 1 个子会话：子会话", basis: "source.field + sub-sessions at work" });
+      else expect(v.state).not.toBe("delegated");
+    }
+  });
+  it("reads a settled turn by its outcome, then by whether it was seen, then by how long it sat", () => {
+    for (const { facts } of every) {
+      if (facts.process !== "idle" || facts.childrenRunning.length) continue;
+      const { state } = decide(facts);
+      const expected = { asked: "needs-you", failed: "error", review: "review", interrupted: "interrupted" }[facts.outcome as string] ?? (facts.seen ? "done" : facts.idleMs > UNREAD_EXPIRE_MS ? "expired" : "unread");
+      expect(state, JSON.stringify(facts)).toBe(expected);
+    }
+  });
+  it("carries the turn through every settled state, so alerts can fire once per turn", () => {
+    for (const { facts } of every) if (facts.process !== "running") expect(decide(facts).turn).toBe("t1");
+  });
+  it("names the sub-sessions it waits on, up to three, in the person's language", () => {
+    const f = { ...base, childrenRunning: ["a", "b", "c", "d"] };
+    expect(decide(f).detail).toBe("等 4 个子会话：a、b、c…");
+    expect(decide(f, "en").detail).toBe("Waiting on 4 sub-sessions: a, b, c…");
+    expect(decide({ ...base, childrenRunning: ["", ""] }, "en").detail).toBe("Waiting on 2 sub-sessions");
+  });
+});
+
+describe("decideAll: families", () => {
+  const facts = (over: Partial<SessionFacts>): SessionFacts => ({ process: "idle", waitingOn: "", outcome: "completed", outcomeDetail: "", seen: true, childrenRunning: [], idleMs: 1000, basis: "b", turn: "t", unseenBasis: "unread", ...over });
+  const row = (id: string, over: Partial<Omit<PreparedRow, "facts">> & { facts?: Partial<SessionFacts> }): PreparedRow => ({ app: "claude", id, title: id, at: 0, cwd: "/w", open: null, parent: null, ...over, facts: facts(over.facts ?? {}) });
+  const states = (rows: PreparedRow[]) => Object.fromEntries(decideAll(rows).map((r) => [r.id, r.state]));
+
+  it("makes a parent wait on a child that is running, stuck, waiting on a person, or itself waiting on grandchildren", () => {
+    for (const child of [{ process: "running" }, { process: "stalled" }, { process: "waiting" }, { outcome: "asked" }] as Partial<SessionFacts>[]) {
+      expect(states([row("p", { facts: { outcome: "asked" } }), row("c", { parent: "claude:p", facts: child })]).p, JSON.stringify(child)).toBe("delegated");
+    }
+    expect(states([row("p", {}), row("c", { parent: "claude:p" }), row("g", { parent: "claude:c", facts: { process: "running" } })])).toEqual({ p: "delegated", c: "delegated", g: "running" });
+  });
+  it("lets the parent speak for itself once every child has stopped, failed included", () => {
+    expect(states([row("p", { facts: { outcome: "asked" } }), row("c", { parent: "claude:p" })]).p).toBe("needs-you");
+    expect(states([row("p", {}), row("c", { parent: "claude:p", facts: { outcome: "failed" } })])).toEqual({ p: "done", c: "error" });
+  });
+  it("names the children it waits on and says so in the basis", () => {
+    const [p] = decideAll([row("p", { facts: { basis: "postTurnSummary.blocked" } }), row("子一", { parent: "claude:p", facts: { process: "running" } }), row("子二", { parent: "claude:p", facts: { outcome: "asked" } })]);
+    expect(p).toMatchObject({ state: "delegated", detail: "等 2 个子会话：子一、子二", basis: "postTurnSummary.blocked + sub-sessions at work" });
+  });
+  it("keeps the apps apart by key, ignores a parent that is not listed, and survives a cycle", () => {
+    expect(states([row("p", {}), row("c", { app: "codex", parent: "claude:p", facts: { process: "running" } }), row("x", { parent: "codex:p", facts: { process: "running" } })])).toEqual({ p: "delegated", c: "running", x: "running" });
+    expect(states([row("c", { parent: "claude:gone", facts: { process: "running" } })])).toEqual({ c: "running" });
+    expect(states([row("a", { parent: "claude:b", facts: { outcome: "asked" } }), row("b", { parent: "claude:a", facts: { outcome: "asked" } })])).toEqual({ a: "needs-you", b: "needs-you" });
+  });
+  it("hands every row back with its fields, in the order given", () => {
+    const out = decideAll([row("p", { title: "父", at: 5, cwd: "/w/p", open: { kind: "desktop", desktopSessionId: "p" } }), row("c", { parent: "claude:p", facts: { process: "running" } })]);
+    expect(out.map((r) => r.id)).toEqual(["p", "c"]);
+    expect(out[0]).toMatchObject({ app: "claude", id: "p", title: "父", at: 5, cwd: "/w/p", open: { kind: "desktop", desktopSessionId: "p" }, parent: null, state: "delegated" });
+    expect(out[1]).toMatchObject({ parent: "claude:p", state: "running", turn: "" });
+  });
+});
 
 describe("classifyClaude", () => {
   const reply = { lastAssistantUuid: "u1", postTurnSummaryFor: "u1" };
@@ -56,6 +144,18 @@ describe("classifyClaude", () => {
     expect(classifyClaude({ lastAssistantUuid: "u2", postTurnSummaryFor: "u1", postTurnSummary: { status_category: "completed" } }, "idle").turn).toBe("");
     expect(classifyClaude({ error: "limit", errorAt: 200, latestUserFrameAt: 100 }, "idle").turn).toBe("error:200");
   });
+  it("is held on the person while the process waits on a prompt, whatever the summary says, and says on what", () => {
+    expect(decide(claudeFacts({ ...reply, lastActivityAt: 5, postTurnSummary: { status_category: "completed" } }, { status: "waiting", waitingFor: "permission prompt" }))).toEqual({ state: "needs-you", detail: "等你批一个权限", basis: "claude agents: waiting (permission prompt)", turn: "waiting:5" });
+    expect(decide(claudeFacts({}, { status: "waiting", waitingFor: "sandbox request" }, { lang: "en" }), "en").detail).toBe("Waiting for you to answer a sandbox request");
+    expect(decide(claudeFacts({}, { status: "waiting" }, { lang: "en" }), "en").detail).toBe("Waiting for your input");
+    expect(decide(claudeFacts({}, { status: "waiting", waitingFor: "something new" })).detail).toBe("等你：something new");
+  });
+  it("waits on its sub-sessions while any is at work, even when it stopped on a question", () => {
+    const blocked = { ...reply, postTurnSummary: { status_category: "blocked", needs_action: "确认两个子会话的计划" } };
+    expect(classifyClaude(blocked, "idle", { childrenRunning: ["多级文件夹", "tag 重梳"] })).toEqual({ state: "delegated", detail: "等 2 个子会话：多级文件夹、tag 重梳", basis: "postTurnSummary.blocked + sub-sessions at work", turn: "u1" });
+    expect(classifyClaude(blocked, "idle", { childrenRunning: ["nested folders"], lang: "en" }).detail).toBe("Waiting on 1 sub-session: nested folders");
+    expect(classifyClaude(blocked, "busy", { childrenRunning: ["多级文件夹"] }).state).toBe("running");
+  });
   it("shows an error only while nothing was sent after it", () => {
     const limit = "You've hit your session limit";
     expect(classifyClaude({ error: limit, errorAt: 200, latestUserFrameAt: 100 }, "idle")).toMatchObject({ state: "error", detail: limit });
@@ -108,7 +208,7 @@ describe("stripWorktree", () => {
 });
 
 describe("groupByProject", () => {
-  const row = (over: Partial<SessionRow>): SessionRow => ({ app: "claude", id: "x", title: "", at: 0, cwd: "", projectKey: "/w/a", open: null, state: "done", detail: "", basis: "", turn: "", ...over });
+  const row = (over: Partial<SessionRow>): SessionRow => ({ app: "claude", id: "x", title: "", at: 0, cwd: "", projectKey: "/w/a", open: null, parent: null, state: "done", detail: "", basis: "", turn: "", ...over });
 
   it("puts what needs a person first, newest first within a state", () => {
     const { sessions } = groupByProject([

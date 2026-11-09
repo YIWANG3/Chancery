@@ -4,11 +4,11 @@ import { ALERT_FRESH_MS, HELD_UP_WINDOW_MS, alertKindOf, createAlertTracker, hel
 
 const NOW = 1_000_000_000_000;
 
-const row = (over: Partial<SessionRow>): SessionRow => ({ app: "claude", id: "s1", title: "标题", at: NOW, cwd: "/w/a", projectKey: "/w/a", open: null, state: "done", detail: "", basis: "", turn: "", ...over });
+const row = (over: Partial<SessionRow>): SessionRow => ({ app: "claude", id: "s1", title: "标题", at: NOW, cwd: "/w/a", projectKey: "/w/a", open: null, parent: null, state: "done", detail: "", basis: "", turn: "", ...over });
 
 const overview = (sessions: SessionRow[], readAt = NOW): Overview => ({
   sessions,
-  projects: [{ key: "/w/a", name: "a", dir: "/w/a", apps: ["claude", "codex"], sessions: sessions.length, counts: { "needs-you": 0, error: 0, stuck: 0, review: 0, unread: 0, running: 0, interrupted: 0, expired: 0, done: 0 }, lastAt: NOW }],
+  projects: [{ key: "/w/a", name: "a", dir: "/w/a", apps: ["claude", "codex"], sessions: sessions.length, counts: { "needs-you": 0, error: 0, stuck: 0, running: 0, delegated: 0, review: 0, unread: 0, interrupted: 0, expired: 0, done: 0 }, lastAt: NOW }],
   readAt,
   errors: [],
 });

@@ -4,14 +4,24 @@
 // Sources (none is a public format, so every read is defensive and a source that cannot be read lands in `errors`
 // instead of taking the overview down):
 //   Claude  ~/Library/Application Support/Claude/claude-code-sessions/<org>/<user>/local_*.json   desktop index
-//           `claude agents --json`                                                               live busy / idle
-//   Codex   ~/.codex/state_5.sqlite           threads, thread_read_receipts
-//           ~/.codex/thread_history_1.sqlite  thread_turns, thread_items
+//             postTurnSummary (how the last turn ended), lastFocusedAt (seen), spawnedFrom (parent session)
+//           `claude agents --json`                                                               live busy / waiting / idle
+//   Codex   ~/.codex/state_5.sqlite           threads, thread_read_receipts (seen), thread_spawn_edges (parent)
+//           ~/.codex/thread_history_1.sqlite  thread_turns (how the last turn ended), thread_items (activity)
+//
+// A state is decided in two steps, so that every source feeds the same small set of questions (`SessionFacts`) and
+// one table (`decide`) turns the answers into a state. The questions are the four things the two apps actually
+// record, each on its own axis: what the process is doing, how the last turn ended, whether the person has looked
+// since, and whether sub-sessions it started are still at work. A new kind of situation is a new row in the table,
+// never a new branch in a reader.
+//
+// Known gap: Codex keeps "waiting on an approval / on input" only in its app-server's memory, not in the databases,
+// so a Codex thread held on an approval reads as whatever its last turn said.
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { desktopIndexRoot, type SessionOpen } from "./claude/desktopIndex.js";
-import { listClaudeAgents } from "./claude/sessions.js";
+import { listClaudeAgents, type ClaudeAgent } from "./claude/sessions.js";
 import { run } from "./util/run.js";
 import { sqliteJson, sqlQuote } from "./util/sqlite.js";
 import { t as say, type Lang } from "./i18n/index.js";
@@ -22,9 +32,10 @@ export type SessionState =
   | "needs-you" // stopped on something only a person can settle
   | "error" // the last turn failed (quota, overload, …)
   | "stuck" // still marked running but nothing has moved for a long time
+  | "running"
+  | "delegated" // idle itself, with sub-sessions it started still at work; it moves again when they report
   | "review" // finished with something to look at (a PR, a result awaiting CI)
   | "unread" // finished, and the app says it has not been opened since
-  | "running"
   | "interrupted"
   | "expired" // finished and left unopened for so long that nobody is going to look at it
   | "done";
@@ -33,7 +44,7 @@ export type SessionState =
  *  then the rest. Running comes before the waiting-to-be-looked-at states on purpose: a Codex thread stays "unread"
  *  until it is opened in the Codex app, so a dozen of them from days ago would otherwise bury the session that
  *  started a minute ago. */
-export const SESSION_STATE_ORDER: SessionState[] = ["needs-you", "error", "stuck", "running", "review", "unread", "interrupted", "expired", "done"];
+export const SESSION_STATE_ORDER: SessionState[] = ["needs-you", "error", "stuck", "running", "delegated", "review", "unread", "interrupted", "expired", "done"];
 
 export interface SessionVerdict {
   state: SessionState;
@@ -58,6 +69,8 @@ export interface SessionRow extends SessionVerdict {
   projectKey: string;
   /** Where the conversation can be reopened in its own app. */
   open: SessionOpen | null;
+  /** The session this one was started from (`app:id`), when its app records that. */
+  parent: string | null;
 }
 
 export interface ProjectGroup {
@@ -95,9 +108,140 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
+// ---------------------------------------------------------------------------------------------------------------
+// The four axes, and the table that turns them into a state.
+
+/** Axis 1: what the session's process is doing right now. */
+export type ProcessFact =
+  | "running" // a turn is going
+  | "stalled" // marked as going, but silent for longer than any step should take
+  | "waiting" // alive and stopped on the person: a permission prompt, a question in a dialog, a sandbox request
+  | "idle"; // no turn going, or no process at all
+
+/** Axis 2: how the last turn ended. */
+export type OutcomeFact =
+  | "asked" // on a question, or anything else only a person can settle
+  | "failed" // with an error (quota, overload, a crash)
+  | "interrupted" // stopped by the person before it was done
+  | "review" // done, with something to look at (a PR, a result awaiting CI)
+  | "completed" // done
+  | "unknown"; // no record of how it ended
+
+export const PROCESS_FACTS: readonly ProcessFact[] = ["running", "stalled", "waiting", "idle"];
+export const OUTCOME_FACTS: readonly OutcomeFact[] = ["asked", "failed", "interrupted", "review", "completed", "unknown"];
+
+/** What a source could say about a session, on the four axes. Every reader fills one of these; `decide` reads it. */
+export interface SessionFacts {
+  process: ProcessFact;
+  /** With process "waiting": what it is held on, already in the person's language. */
+  waitingOn: string;
+  outcome: OutcomeFact;
+  /** The last turn's own line: what it needs, where it stands, or the error. */
+  outcomeDetail: string;
+  /** Axis 3: the person has looked at the session since the last turn ended. True when the source cannot tell. */
+  seen: boolean;
+  /** Axis 4: sub-sessions this one started that are still at work, by title. Empty when there are none. */
+  childrenRunning: string[];
+  /** Since the last activity, ms. Decides when a stalled turn is announced as such and when "unread" gives up. */
+  idleMs: number;
+  /** Which field decided the outcome (or the process, when that is what decides); the tooltip's text. */
+  basis: string;
+  /** The turn the outcome describes (see SessionVerdict.turn); empty when nothing has settled. */
+  turn: string;
+  /** The app's word for "not seen" in `basis`: Claude has only a focus stamp ("unopened"), Codex a read receipt. */
+  unseenBasis: string;
+}
+
+const delegatedDetail = (titles: string[], lang: Lang): string => {
+  const named = titles.filter(Boolean);
+  if (!named.length) return say(lang, "overview.delegatedDetail", { n: titles.length });
+  const shown = named.slice(0, 3).join(lang === "zh" ? "、" : ", ") + (named.length > 3 ? "…" : "");
+  return say(lang, "overview.delegatedDetailTitled", { n: titles.length, titles: shown });
+};
+
 /**
- * One Claude Desktop index entry plus what `claude agents` says about its process.
+ * The table. Rows are tried in order and the first that applies decides; the order is the priority between the
+ * axes:
  *
+ *   1. a live process outranks whatever the last turn said (running, stalled, waiting on the person);
+ *   2. a failed turn is the session's own problem, children or not;
+ *   3. sub-sessions still at work mean the session is waiting on them, whatever it said when it stopped;
+ *   4. then the turn's own outcome: asked, review, interrupted;
+ *   5. a finished turn the person has not looked at is unread, until that has gone on so long it is expired;
+ *   6. else done.
+ *
+ * `overview.test.ts` walks every combination of the axes through this and keeps the resulting table as a snapshot,
+ * so a change here shows as a diff of that table.
+ */
+export function decide(f: SessionFacts, lang: Lang = "zh"): SessionVerdict {
+  if (f.process === "running") return { state: "running", detail: "", basis: f.basis, turn: "" };
+  if (f.process === "stalled") return { state: "stuck", detail: say(lang, "overview.stuckDetail", { n: Math.round(f.idleMs / 60_000) }), basis: f.basis, turn: f.turn };
+  if (f.process === "waiting") return { state: "needs-you", detail: f.waitingOn, basis: f.basis, turn: f.turn };
+  if (f.outcome === "failed") return { state: "error", detail: f.outcomeDetail, basis: f.basis, turn: f.turn };
+  if (f.childrenRunning.length) return { state: "delegated", detail: delegatedDetail(f.childrenRunning, lang), basis: `${f.basis} + sub-sessions at work`, turn: f.turn };
+  if (f.outcome === "asked") return { state: "needs-you", detail: f.outcomeDetail, basis: f.basis, turn: f.turn };
+  if (f.outcome === "review") return { state: "review", detail: f.outcomeDetail, basis: f.basis, turn: f.turn };
+  if (f.outcome === "interrupted") return { state: "interrupted", detail: f.outcomeDetail, basis: f.basis, turn: f.turn };
+  if (!f.seen) {
+    if (f.idleMs > UNREAD_EXPIRE_MS) return { state: "expired", detail: say(lang, "overview.expiredDetail", { n: Math.floor(f.idleMs / 86_400_000) }), basis: `${f.basis} + ${f.unseenBasis}, expired`, turn: f.turn };
+    return { state: "unread", detail: f.outcomeDetail, basis: `${f.basis} + ${f.unseenBasis}`, turn: f.turn };
+  }
+  return { state: "done", detail: f.outcomeDetail, basis: f.basis, turn: f.turn };
+}
+
+/** Which states of a sub-session mean its parent is still waiting on it. A failed child is a problem of its own,
+ *  shown on its own row; the parent then shows what it last said. */
+const CHILD_AT_WORK: ReadonlySet<SessionState> = new Set<SessionState>(["running", "stuck", "needs-you", "delegated"]);
+
+const familyKey = (s: { app: SessionApp; id: string }): string => `${s.app}:${s.id}`;
+
+/** A row as a reader hands it over: everything but the verdict, plus the facts the verdict is made from. */
+export interface PreparedRow extends Omit<SessionRow, keyof SessionVerdict | "projectKey"> {
+  facts: SessionFacts;
+}
+
+/**
+ * Decides every row, sub-sessions before the sessions that started them: a parent's fourth axis is which of its
+ * children are still at work, and a child that is itself waiting on grandchildren counts as at work. A parent
+ * outside the list (archived, out of the window) simply has no effect; links that form a loop are dropped.
+ */
+export function decideAll(rows: PreparedRow[], lang: Lang = "zh"): Array<Omit<SessionRow, "projectKey">> {
+  const byKey = new Map(rows.map((r) => [familyKey(r), r]));
+  const parentOf = new Map<string, string>();
+  for (const r of rows) if (r.parent && byKey.has(r.parent)) parentOf.set(familyKey(r), r.parent);
+  // A link that leads back to where it started is bogus; every link on such a loop is dropped, so the rows on it
+  // speak for themselves.
+  const onLoop = (key: string): boolean => {
+    let k = parentOf.get(key);
+    for (let steps = 0; k && steps <= rows.length; steps++) {
+      if (k === key) return true;
+      k = parentOf.get(k);
+    }
+    return false;
+  };
+  const children = new Map<string, PreparedRow[]>();
+  for (const r of rows) {
+    const key = familyKey(r);
+    const parent = parentOf.get(key);
+    if (parent && !onLoop(key)) children.set(parent, [...(children.get(parent) ?? []), r]);
+  }
+  const verdicts = new Map<string, SessionVerdict>();
+  const verdictOf = (r: PreparedRow): SessionVerdict => {
+    const key = familyKey(r);
+    const known = verdicts.get(key);
+    if (known) return known;
+    const childrenRunning = [...r.facts.childrenRunning, ...(children.get(key) ?? []).filter((c) => CHILD_AT_WORK.has(verdictOf(c).state)).map((c) => c.title)];
+    const v = decide({ ...r.facts, childrenRunning }, lang);
+    verdicts.set(key, v);
+    return v;
+  };
+  return rows.map((r) => ({ app: r.app, id: r.id, title: r.title, at: r.at, cwd: r.cwd, open: r.open, parent: r.parent, ...verdictOf(r) }));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Claude: one Desktop index entry plus what `claude agents` says about its process.
+
+/**
  * The index carries a model-written summary of the last turn (`postTurnSummary`): a category (`completed`,
  * `review_ready`, `blocked`), a line about where things stand, and, when blocked, what the person has to do. Claude
  * Desktop clears it when a new turn starts, and `postTurnSummaryFor` names the reply it describes, so a summary that
@@ -109,34 +253,66 @@ export interface ClaudeClassifyContext {
   watched?: boolean;
   /** The language `detail` is written in. Chinese, the language these strings were first written in, unless said. */
   lang?: Lang;
+  /** Sub-sessions started from this one that are still at work, by title (normally filled in by `decideAll`). */
+  childrenRunning?: string[];
 }
 
-export function classifyClaude(entry: Record<string, unknown>, liveStatus: string | undefined, ctx: ClaudeClassifyContext = {}): SessionVerdict {
-  if (liveStatus === "busy") return { state: "running", detail: "", basis: "claude agents: busy", turn: "" };
+/** `claude agents` names what a waiting process is held on in a few fixed phrases; the person's language for each. */
+function waitingOn(waitingFor: string, lang: Lang): string {
+  const w = waitingFor.toLowerCase();
+  if (w.includes("permission")) return say(lang, "overview.waitingFor.permission");
+  if (w.includes("sandbox")) return say(lang, "overview.waitingFor.sandbox");
+  if (w.includes("worker")) return say(lang, "overview.waitingFor.worker");
+  if (w.includes("dialog")) return say(lang, "overview.waitingFor.dialog");
+  if (w.includes("input") || !w) return say(lang, "overview.waitingFor.input");
+  return say(lang, "overview.waitingFor.other", { what: waitingFor });
+}
+
+export function claudeFacts(entry: Record<string, unknown>, agent: Pick<ClaudeAgent, "status" | "waitingFor"> | undefined, ctx: ClaudeClassifyContext = {}): SessionFacts {
+  const now = ctx.now ?? Date.now();
+  const lang = ctx.lang ?? "zh";
+  const activity = num(entry.lastActivityAt);
+  const focused = num(entry.lastFocusedAt);
+  const facts: SessionFacts = {
+    process: "idle",
+    waitingOn: "",
+    outcome: "unknown",
+    outcomeDetail: "",
+    // Claude Desktop stamps `lastFocusedAt` when a session is brought up, not while it stays up, so a reply that
+    // landed after that stamp has not been seen, unless the session is the one in front right now. Codex keeps a
+    // read receipt instead; this is the nearest Claude's index gets to one.
+    seen: !(focused && activity > focused && !ctx.watched),
+    childrenRunning: ctx.childrenRunning ?? [],
+    idleMs: Math.max(0, now - activity),
+    basis: "no summary",
+    turn: "",
+    unseenBasis: "unopened",
+  };
+  if (agent?.status === "busy") return { ...facts, process: "running", basis: "claude agents: busy" };
+  if (agent?.status === "waiting") {
+    const what = str(agent.waitingFor);
+    return { ...facts, process: "waiting", waitingOn: waitingOn(what, lang), basis: `claude agents: waiting${what ? ` (${what})` : ""}`, turn: `waiting:${activity}` };
+  }
   // An error is current only if nothing was sent after it.
-  if (str(entry.error) && num(entry.errorAt) >= num(entry.latestUserFrameAt)) return { state: "error", detail: str(entry.error), basis: "index.error", turn: `error:${num(entry.errorAt)}` };
+  if (str(entry.error) && num(entry.errorAt) >= num(entry.latestUserFrameAt)) return { ...facts, outcome: "failed", outcomeDetail: str(entry.error), basis: "index.error", turn: `error:${num(entry.errorAt)}` };
   const summary = isRecord(entry.postTurnSummary) ? entry.postTurnSummary : null;
-  if (!summary) return { state: "done", detail: "", basis: "no summary", turn: "" };
-  if (entry.postTurnSummaryFor !== entry.lastAssistantUuid) return { state: "done", detail: "", basis: "summary is for an earlier reply", turn: "" };
+  if (!summary) return facts;
+  if (entry.postTurnSummaryFor !== entry.lastAssistantUuid) return { ...facts, basis: "summary is for an earlier reply" };
   const category = str(summary.status_category);
   const needs = str(summary.needs_action);
   const status = str(summary.status_detail);
-  const basis = `postTurnSummary.${category || "?"}`;
-  const turn = str(entry.lastAssistantUuid);
-  if (category === "blocked" || needs) return { state: "needs-you", detail: needs || status, basis, turn };
-  if (category === "review_ready") return { state: "review", detail: status, basis, turn };
-  // Finished since the person last had it in front. Claude Desktop stamps `lastFocusedAt` when a session is brought
-  // up, not while it stays up, so a reply that landed after that stamp has not been seen, unless the session is the
-  // one in front right now. Codex keeps a read receipt instead; this is the nearest Claude's index gets to one.
-  const focused = num(entry.lastFocusedAt);
-  const activity = num(entry.lastActivityAt);
-  if (focused && activity > focused && !ctx.watched) {
-    const idle = (ctx.now ?? Date.now()) - activity;
-    if (idle > UNREAD_EXPIRE_MS) return { state: "expired", detail: say(ctx.lang ?? "zh", "overview.expiredDetail", { n: Math.floor(idle / 86_400_000) }), basis: `${basis} + unopened, expired`, turn };
-    return { state: "unread", detail: status, basis: `${basis} + unopened`, turn };
-  }
-  return { state: "done", detail: status, basis, turn };
+  const settled = { ...facts, basis: `postTurnSummary.${category || "?"}`, turn: str(entry.lastAssistantUuid), outcomeDetail: status };
+  if (category === "blocked" || needs) return { ...settled, outcome: "asked", outcomeDetail: needs || status };
+  if (category === "review_ready") return { ...settled, outcome: "review" };
+  return { ...settled, outcome: "completed" };
 }
+
+export function classifyClaude(entry: Record<string, unknown>, liveStatus: string | undefined, ctx: ClaudeClassifyContext = {}): SessionVerdict {
+  return decide(claudeFacts(entry, liveStatus === undefined ? undefined : { status: liveStatus }, ctx), ctx.lang ?? "zh");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Codex: the newest turn of a thread, its read receipt, and the thread's last activity.
 
 export interface CodexThreadFacts {
   /** `thread_turns.status` of the newest turn: inProgress | completed | failed | interrupted. */
@@ -161,26 +337,43 @@ function codexErrorMessage(errorJson: string | null): string {
 
 /**
  * Codex records a turn's status as it happens, and a read receipt per thread. It has nothing like Claude's
- * "blocked on a question": a finished turn that asked something and one that simply finished look the same, so the
- * most this can say is "finished and not opened since".
+ * "blocked on a question" in its databases: a finished turn that asked something and one that simply finished
+ * look the same, so the most this can say is "finished and not opened since".
  */
-export function classifyCodex(t: CodexThreadFacts, now: number, lang: Lang = "zh"): SessionVerdict {
-  const basis = t.turnStatus ? `thread_turns.${t.turnStatus}` : "no turn";
-  const turn = t.turnOrdinal === null ? "" : String(t.turnOrdinal);
-  if (t.turnStatus === "inProgress") {
-    const idle = now - t.lastActivityAt;
-    if (idle > CODEX_STALE_MS) return { state: "stuck", detail: say(lang, "overview.stuckDetail", { n: Math.round(idle / 60_000) }), basis, turn };
-    return { state: "running", detail: "", basis, turn: "" };
+export function codexFacts(t: CodexThreadFacts, now: number): SessionFacts {
+  const idleMs = Math.max(0, now - t.lastActivityAt);
+  const facts: SessionFacts = {
+    process: "idle",
+    waitingOn: "",
+    outcome: "unknown",
+    outcomeDetail: "",
+    seen: !t.unread,
+    childrenRunning: [],
+    idleMs,
+    basis: t.turnStatus ? `thread_turns.${t.turnStatus}` : "no turn",
+    turn: t.turnOrdinal === null ? "" : String(t.turnOrdinal),
+    unseenBasis: "unread",
+  };
+  switch (t.turnStatus) {
+    case "inProgress":
+      return { ...facts, process: idleMs > CODEX_STALE_MS ? "stalled" : "running" };
+    case "failed":
+      return { ...facts, outcome: "failed", outcomeDetail: codexErrorMessage(t.errorJson) };
+    case "interrupted":
+      return { ...facts, outcome: "interrupted" };
+    case "completed":
+      return { ...facts, outcome: "completed" };
+    default:
+      return facts;
   }
-  if (t.turnStatus === "failed") return { state: "error", detail: codexErrorMessage(t.errorJson), basis, turn };
-  if (t.turnStatus === "interrupted") return { state: "interrupted", detail: "", basis, turn };
-  if (t.turnStatus === "completed" && t.unread) {
-    const idle = now - t.lastActivityAt;
-    if (idle > UNREAD_EXPIRE_MS) return { state: "expired", detail: say(lang, "overview.expiredDetail", { n: Math.floor(idle / 86_400_000) }), basis: `${basis} + unread, expired`, turn };
-    return { state: "unread", detail: "", basis: `${basis} + unread`, turn };
-  }
-  return { state: "done", detail: "", basis, turn };
 }
+
+export function classifyCodex(t: CodexThreadFacts, now: number, lang: Lang = "zh"): SessionVerdict {
+  return decide(codexFacts(t, now), lang);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Projects.
 
 const WORKTREE_SUFFIX = /\/\.(?:claude|chancery)\/worktrees\/[^/]+(?:\/.*)?$/;
 /** `<repo>/.claude/worktrees/<slug>/…` → `<repo>`. For a worktree that was already removed, where git cannot be asked. */
@@ -216,18 +409,19 @@ export async function projectKeyFor(cwd: string): Promise<string> {
   return OTHER_PROJECT_KEY;
 }
 
-type Unplaced = Omit<SessionRow, "projectKey">;
+// ---------------------------------------------------------------------------------------------------------------
+// Readers.
 
-async function readClaude(home: string, claudeBin: string, since: number, now: number, claudeInFront: boolean, lang: Lang, errors: string[]): Promise<Unplaced[]> {
+async function readClaude(home: string, claudeBin: string, since: number, now: number, claudeInFront: boolean, lang: Lang, errors: string[]): Promise<PreparedRow[]> {
   const root = desktopIndexRoot(home);
   if (!(await isDirectory(root))) return [];
-  const live = new Map<string, { status: string; startedAt: number }>();
+  const live = new Map<string, ClaudeAgent>();
   try {
-    for (const a of await listClaudeAgents(claudeBin)) live.set(a.sessionId, { status: a.status, startedAt: num(a.startedAt) });
+    for (const a of await listClaudeAgents(claudeBin)) live.set(a.sessionId, a);
   } catch (err) {
     errors.push(say(lang, "overview.err.claudeAgents", { error: err instanceof Error ? err.message : String(err) }));
   }
-  const found: Array<{ entry: Record<string, unknown>; agent: { status: string; startedAt: number } | undefined; id: string; at: number }> = [];
+  const found: Array<{ entry: Record<string, unknown>; agent: ClaudeAgent | undefined; id: string; at: number }> = [];
   for (const org of await readdir(root).catch(() => [] as string[])) {
     for (const user of await readdir(join(root, org)).catch(() => [] as string[])) {
       const dir = join(root, org, user);
@@ -243,7 +437,7 @@ async function readClaude(home: string, claudeBin: string, since: number, now: n
         const agent = live.get(str(entry.cliSessionId));
         // A session whose process is alive counts as active from when that process started, even when the index
         // has seen no turn since: an idle session reopened today is in today's window, not last week's.
-        const at = Math.max(num(entry.lastActivityAt), agent?.startedAt ?? 0);
+        const at = Math.max(num(entry.lastActivityAt), num(agent?.startedAt));
         if (at < since) continue;
         found.push({ entry, agent, id: str(entry.sessionId) || f.slice(0, -5), at });
       }
@@ -251,15 +445,20 @@ async function readClaude(home: string, claudeBin: string, since: number, now: n
   }
   // While Claude Desktop is the app in front, the session it brought up last is the one on screen.
   const watched = claudeInFront ? found.reduce<(typeof found)[number] | null>((best, f) => (num(f.entry.lastFocusedAt) > num(best?.entry.lastFocusedAt) ? f : best), null) : null;
-  return found.map(({ entry, agent, id, at }) => ({
-    app: "claude",
-    id,
-    title: str(entry.title),
-    at,
-    cwd: str(entry.originCwd) || str(entry.cwd),
-    open: { kind: "desktop", desktopSessionId: id },
-    ...classifyClaude(entry, agent?.status, { now, watched: watched?.id === id, lang }),
-  }));
+  return found.map(({ entry, agent, id, at }) => {
+    // A side session the desktop app started from another one records that one as `spawnedFrom`.
+    const spawnedFrom = isRecord(entry.spawnedFrom) ? str(entry.spawnedFrom.sessionId) : "";
+    return {
+      app: "claude" as const,
+      id,
+      title: str(entry.title),
+      at,
+      cwd: str(entry.originCwd) || str(entry.cwd),
+      open: { kind: "desktop" as const, desktopSessionId: id },
+      parent: spawnedFrom ? `claude:${spawnedFrom}` : null,
+      facts: claudeFacts(entry, agent, { now, watched: watched?.id === id, lang }),
+    };
+  });
 }
 
 interface CodexThreadRow {
@@ -271,7 +470,7 @@ interface CodexThreadRow {
   unread: number;
 }
 
-async function readCodex(home: string, since: number, includeExec: boolean, now: number, lang: Lang, errors: string[]): Promise<Unplaced[]> {
+async function readCodex(home: string, since: number, includeExec: boolean, now: number, lang: Lang, errors: string[]): Promise<PreparedRow[]> {
   const stateDb = join(home, ".codex", "state_5.sqlite");
   const historyDb = join(home, ".codex", "thread_history_1.sqlite");
   if (!(await stat(stateDb).catch(() => null))) return [];
@@ -290,6 +489,14 @@ async function readCodex(home: string, since: number, includeExec: boolean, now:
   }
   if (!threads.length) return [];
   const ids = threads.map((t) => sqlQuote(t.id)).join(",");
+  // Which listed thread was started by which other one (a subagent's thread by its parent). The table arrived with
+  // a 2026 Codex; an older database without it just has no families.
+  const parentOf = new Map<string, string>();
+  try {
+    for (const e of await sqliteJson<{ parent_thread_id: string; child_thread_id: string }>(stateDb, `SELECT parent_thread_id, child_thread_id FROM thread_spawn_edges WHERE child_thread_id IN (${ids})`)) parentOf.set(e.child_thread_id, e.parent_thread_id);
+  } catch {
+    // no spawn edges in this database
+  }
   const turns = new Map<string, { status: string; error_json: string | null; ordinal: number | null }>();
   const lastItem = new Map<string, number>();
   try {
@@ -308,6 +515,7 @@ async function readCodex(home: string, since: number, includeExec: boolean, now:
   return threads.map((t) => {
     const at = num(t.at);
     const turn = turns.get(t.id);
+    const parent = parentOf.get(t.id);
     return {
       app: "codex" as const,
       id: t.id,
@@ -315,12 +523,16 @@ async function readCodex(home: string, since: number, includeExec: boolean, now:
       at,
       cwd: str(t.cwd),
       open: { kind: "codex-app" as const, threadId: t.id },
-      ...classifyCodex({ turnStatus: turn?.status ?? null, turnOrdinal: turn?.ordinal ?? null, errorJson: turn?.error_json ?? null, unread: Boolean(t.unread), lastActivityAt: Math.max(at, lastItem.get(t.id) ?? 0) }, now, lang),
+      parent: parent ? `codex:${parent}` : null,
+      facts: codexFacts({ turnStatus: turn?.status ?? null, turnOrdinal: turn?.ordinal ?? null, errorJson: turn?.error_json ?? null, unread: Boolean(t.unread), lastActivityAt: Math.max(at, lastItem.get(t.id) ?? 0) }, now),
     };
   });
 }
 
-const zeroCounts = (): Record<SessionState, number> => ({ "needs-you": 0, error: 0, stuck: 0, review: 0, unread: 0, running: 0, interrupted: 0, expired: 0, done: 0 });
+// ---------------------------------------------------------------------------------------------------------------
+// Grouping.
+
+const zeroCounts = (): Record<SessionState, number> => ({ "needs-you": 0, error: 0, stuck: 0, running: 0, delegated: 0, review: 0, unread: 0, interrupted: 0, expired: 0, done: 0 });
 
 /** How many sessions in a group are held up on a person. */
 export const attentionOf = (counts: Record<SessionState, number>): number => counts["needs-you"] + counts.error + counts.stuck;
@@ -345,7 +557,7 @@ export function groupByProject(rows: SessionRow[], lang: Lang = "zh"): Pick<Over
     g.lastAt = Math.max(g.lastAt, s.at);
     if (!g.apps.includes(s.app)) g.apps.push(s.app);
   }
-  const projects = [...byKey.values()].sort((a, b) => attentionOf(b.counts) - attentionOf(a.counts) || b.counts.running - a.counts.running || b.lastAt - a.lastAt);
+  const projects = [...byKey.values()].sort((a, b) => attentionOf(b.counts) - attentionOf(a.counts) || b.counts.running + b.counts.delegated - (a.counts.running + a.counts.delegated) || b.lastAt - a.lastAt);
   return { projects, sessions };
 }
 
@@ -376,11 +588,14 @@ export async function buildOverview(opts: OverviewOptions = {}): Promise<Overvie
   const [claude, codex] = await Promise.all([
     readClaude(home, opts.claudeBin ?? "claude", since, now, opts.claudeInFront ?? false, lang, errors).catch((err) => {
       errors.push(say(lang, "overview.err.claudeIndex", { error: err instanceof Error ? err.message : String(err) }));
-      return [] as Unplaced[];
+      return [] as PreparedRow[];
     }),
     readCodex(home, since, opts.includeExec ?? false, now, lang, errors),
   ]);
-  const placed = await Promise.all([...claude, ...codex].map(async (s): Promise<SessionRow> => ({ ...s, projectKey: await projectKeyFor(s.cwd) })));
+  // Families are resolved over both apps' rows before anything is left out, so a parent whose child is in a
+  // directory that no longer exists still knows about it.
+  const decided = decideAll([...claude, ...codex], lang);
+  const placed = await Promise.all(decided.map(async (s): Promise<SessionRow> => ({ ...s, projectKey: await projectKeyFor(s.cwd) })));
   const rows = opts.includeGone ? placed : placed.filter((s) => s.projectKey !== OTHER_PROJECT_KEY);
   return { ...groupByProject(rows, lang), readAt: now, errors };
 }

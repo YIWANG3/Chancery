@@ -45,6 +45,21 @@ describe("buildOverview", () => {
     ]);
   });
 
+  it("shows a session as waiting on the sub-sessions it started while one is still at work, then as itself", async () => {
+    writeSession("parent", { lastActivityAt: now - 60_000, lastAssistantUuid: "p1", postTurnSummaryFor: "p1", postTurnSummary: { status_category: "blocked", needs_action: "确认子会话的计划" } });
+    writeSession("child", { lastActivityAt: now - 30_000, spawnedFrom: { sessionId: "local_parent", sideSession: true, sharedFolder: true } });
+    const childBusy = fakeClaude([{ pid: 2, cwd: project, kind: "interactive", startedAt: now - 30_000, sessionId: "cli-child", name: "child", status: "busy" }]);
+
+    const while_ = await buildOverview({ home, claudeBin: childBusy, days: 3, now });
+    expect(while_.sessions.find((s) => s.title === "parent")).toMatchObject({ state: "delegated", detail: "等 1 个子会话：child", parent: null });
+    expect(while_.sessions.find((s) => s.title === "child")).toMatchObject({ state: "running", parent: "claude:local_parent" });
+
+    writeSession("child", { lastActivityAt: now - 10_000, spawnedFrom: { sessionId: "local_parent" }, lastAssistantUuid: "c1", postTurnSummaryFor: "c1", postTurnSummary: { status_category: "completed", status_detail: "做完了" } });
+    const after = await buildOverview({ home, claudeBin: fakeClaude([]), days: 3, now });
+    expect(after.sessions.find((s) => s.title === "parent")).toMatchObject({ state: "needs-you", detail: "确认子会话的计划" });
+    expect(after.sessions.find((s) => s.title === "child")).toMatchObject({ state: "done", detail: "做完了" });
+  });
+
   it("leaves out sessions whose directory is gone unless asked for them", async () => {
     writeSession("gone", { lastActivityAt: now - DAY, cwd: join(root, "deleted"), originCwd: join(root, "deleted") });
     const claudeBin = fakeClaude([]);

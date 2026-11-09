@@ -1,0 +1,196 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`decide: one table for every source > covers every combination of the four axes; the whole table is the snapshot 1`] = `
+"running  asked        seen    children none     fresh  → running
+running  asked        seen    children none     old    → running
+running  asked        seen    children at work  fresh  → running
+running  asked        seen    children at work  old    → running
+running  asked        unseen  children none     fresh  → running
+running  asked        unseen  children none     old    → running
+running  asked        unseen  children at work  fresh  → running
+running  asked        unseen  children at work  old    → running
+running  failed       seen    children none     fresh  → running
+running  failed       seen    children none     old    → running
+running  failed       seen    children at work  fresh  → running
+running  failed       seen    children at work  old    → running
+running  failed       unseen  children none     fresh  → running
+running  failed       unseen  children none     old    → running
+running  failed       unseen  children at work  fresh  → running
+running  failed       unseen  children at work  old    → running
+running  interrupted  seen    children none     fresh  → running
+running  interrupted  seen    children none     old    → running
+running  interrupted  seen    children at work  fresh  → running
+running  interrupted  seen    children at work  old    → running
+running  interrupted  unseen  children none     fresh  → running
+running  interrupted  unseen  children none     old    → running
+running  interrupted  unseen  children at work  fresh  → running
+running  interrupted  unseen  children at work  old    → running
+running  review       seen    children none     fresh  → running
+running  review       seen    children none     old    → running
+running  review       seen    children at work  fresh  → running
+running  review       seen    children at work  old    → running
+running  review       unseen  children none     fresh  → running
+running  review       unseen  children none     old    → running
+running  review       unseen  children at work  fresh  → running
+running  review       unseen  children at work  old    → running
+running  completed    seen    children none     fresh  → running
+running  completed    seen    children none     old    → running
+running  completed    seen    children at work  fresh  → running
+running  completed    seen    children at work  old    → running
+running  completed    unseen  children none     fresh  → running
+running  completed    unseen  children none     old    → running
+running  completed    unseen  children at work  fresh  → running
+running  completed    unseen  children at work  old    → running
+running  unknown      seen    children none     fresh  → running
+running  unknown      seen    children none     old    → running
+running  unknown      seen    children at work  fresh  → running
+running  unknown      seen    children at work  old    → running
+running  unknown      unseen  children none     fresh  → running
+running  unknown      unseen  children none     old    → running
+running  unknown      unseen  children at work  fresh  → running
+running  unknown      unseen  children at work  old    → running
+stalled  asked        seen    children none     fresh  → stuck
+stalled  asked        seen    children none     old    → stuck
+stalled  asked        seen    children at work  fresh  → stuck
+stalled  asked        seen    children at work  old    → stuck
+stalled  asked        unseen  children none     fresh  → stuck
+stalled  asked        unseen  children none     old    → stuck
+stalled  asked        unseen  children at work  fresh  → stuck
+stalled  asked        unseen  children at work  old    → stuck
+stalled  failed       seen    children none     fresh  → stuck
+stalled  failed       seen    children none     old    → stuck
+stalled  failed       seen    children at work  fresh  → stuck
+stalled  failed       seen    children at work  old    → stuck
+stalled  failed       unseen  children none     fresh  → stuck
+stalled  failed       unseen  children none     old    → stuck
+stalled  failed       unseen  children at work  fresh  → stuck
+stalled  failed       unseen  children at work  old    → stuck
+stalled  interrupted  seen    children none     fresh  → stuck
+stalled  interrupted  seen    children none     old    → stuck
+stalled  interrupted  seen    children at work  fresh  → stuck
+stalled  interrupted  seen    children at work  old    → stuck
+stalled  interrupted  unseen  children none     fresh  → stuck
+stalled  interrupted  unseen  children none     old    → stuck
+stalled  interrupted  unseen  children at work  fresh  → stuck
+stalled  interrupted  unseen  children at work  old    → stuck
+stalled  review       seen    children none     fresh  → stuck
+stalled  review       seen    children none     old    → stuck
+stalled  review       seen    children at work  fresh  → stuck
+stalled  review       seen    children at work  old    → stuck
+stalled  review       unseen  children none     fresh  → stuck
+stalled  review       unseen  children none     old    → stuck
+stalled  review       unseen  children at work  fresh  → stuck
+stalled  review       unseen  children at work  old    → stuck
+stalled  completed    seen    children none     fresh  → stuck
+stalled  completed    seen    children none     old    → stuck
+stalled  completed    seen    children at work  fresh  → stuck
+stalled  completed    seen    children at work  old    → stuck
+stalled  completed    unseen  children none     fresh  → stuck
+stalled  completed    unseen  children none     old    → stuck
+stalled  completed    unseen  children at work  fresh  → stuck
+stalled  completed    unseen  children at work  old    → stuck
+stalled  unknown      seen    children none     fresh  → stuck
+stalled  unknown      seen    children none     old    → stuck
+stalled  unknown      seen    children at work  fresh  → stuck
+stalled  unknown      seen    children at work  old    → stuck
+stalled  unknown      unseen  children none     fresh  → stuck
+stalled  unknown      unseen  children none     old    → stuck
+stalled  unknown      unseen  children at work  fresh  → stuck
+stalled  unknown      unseen  children at work  old    → stuck
+waiting  asked        seen    children none     fresh  → needs-you
+waiting  asked        seen    children none     old    → needs-you
+waiting  asked        seen    children at work  fresh  → needs-you
+waiting  asked        seen    children at work  old    → needs-you
+waiting  asked        unseen  children none     fresh  → needs-you
+waiting  asked        unseen  children none     old    → needs-you
+waiting  asked        unseen  children at work  fresh  → needs-you
+waiting  asked        unseen  children at work  old    → needs-you
+waiting  failed       seen    children none     fresh  → needs-you
+waiting  failed       seen    children none     old    → needs-you
+waiting  failed       seen    children at work  fresh  → needs-you
+waiting  failed       seen    children at work  old    → needs-you
+waiting  failed       unseen  children none     fresh  → needs-you
+waiting  failed       unseen  children none     old    → needs-you
+waiting  failed       unseen  children at work  fresh  → needs-you
+waiting  failed       unseen  children at work  old    → needs-you
+waiting  interrupted  seen    children none     fresh  → needs-you
+waiting  interrupted  seen    children none     old    → needs-you
+waiting  interrupted  seen    children at work  fresh  → needs-you
+waiting  interrupted  seen    children at work  old    → needs-you
+waiting  interrupted  unseen  children none     fresh  → needs-you
+waiting  interrupted  unseen  children none     old    → needs-you
+waiting  interrupted  unseen  children at work  fresh  → needs-you
+waiting  interrupted  unseen  children at work  old    → needs-you
+waiting  review       seen    children none     fresh  → needs-you
+waiting  review       seen    children none     old    → needs-you
+waiting  review       seen    children at work  fresh  → needs-you
+waiting  review       seen    children at work  old    → needs-you
+waiting  review       unseen  children none     fresh  → needs-you
+waiting  review       unseen  children none     old    → needs-you
+waiting  review       unseen  children at work  fresh  → needs-you
+waiting  review       unseen  children at work  old    → needs-you
+waiting  completed    seen    children none     fresh  → needs-you
+waiting  completed    seen    children none     old    → needs-you
+waiting  completed    seen    children at work  fresh  → needs-you
+waiting  completed    seen    children at work  old    → needs-you
+waiting  completed    unseen  children none     fresh  → needs-you
+waiting  completed    unseen  children none     old    → needs-you
+waiting  completed    unseen  children at work  fresh  → needs-you
+waiting  completed    unseen  children at work  old    → needs-you
+waiting  unknown      seen    children none     fresh  → needs-you
+waiting  unknown      seen    children none     old    → needs-you
+waiting  unknown      seen    children at work  fresh  → needs-you
+waiting  unknown      seen    children at work  old    → needs-you
+waiting  unknown      unseen  children none     fresh  → needs-you
+waiting  unknown      unseen  children none     old    → needs-you
+waiting  unknown      unseen  children at work  fresh  → needs-you
+waiting  unknown      unseen  children at work  old    → needs-you
+idle     asked        seen    children none     fresh  → needs-you
+idle     asked        seen    children none     old    → needs-you
+idle     asked        seen    children at work  fresh  → delegated
+idle     asked        seen    children at work  old    → delegated
+idle     asked        unseen  children none     fresh  → needs-you
+idle     asked        unseen  children none     old    → needs-you
+idle     asked        unseen  children at work  fresh  → delegated
+idle     asked        unseen  children at work  old    → delegated
+idle     failed       seen    children none     fresh  → error
+idle     failed       seen    children none     old    → error
+idle     failed       seen    children at work  fresh  → error
+idle     failed       seen    children at work  old    → error
+idle     failed       unseen  children none     fresh  → error
+idle     failed       unseen  children none     old    → error
+idle     failed       unseen  children at work  fresh  → error
+idle     failed       unseen  children at work  old    → error
+idle     interrupted  seen    children none     fresh  → interrupted
+idle     interrupted  seen    children none     old    → interrupted
+idle     interrupted  seen    children at work  fresh  → delegated
+idle     interrupted  seen    children at work  old    → delegated
+idle     interrupted  unseen  children none     fresh  → interrupted
+idle     interrupted  unseen  children none     old    → interrupted
+idle     interrupted  unseen  children at work  fresh  → delegated
+idle     interrupted  unseen  children at work  old    → delegated
+idle     review       seen    children none     fresh  → review
+idle     review       seen    children none     old    → review
+idle     review       seen    children at work  fresh  → delegated
+idle     review       seen    children at work  old    → delegated
+idle     review       unseen  children none     fresh  → review
+idle     review       unseen  children none     old    → review
+idle     review       unseen  children at work  fresh  → delegated
+idle     review       unseen  children at work  old    → delegated
+idle     completed    seen    children none     fresh  → done
+idle     completed    seen    children none     old    → done
+idle     completed    seen    children at work  fresh  → delegated
+idle     completed    seen    children at work  old    → delegated
+idle     completed    unseen  children none     fresh  → unread
+idle     completed    unseen  children none     old    → expired
+idle     completed    unseen  children at work  fresh  → delegated
+idle     completed    unseen  children at work  old    → delegated
+idle     unknown      seen    children none     fresh  → done
+idle     unknown      seen    children none     old    → done
+idle     unknown      seen    children at work  fresh  → delegated
+idle     unknown      seen    children at work  old    → delegated
+idle     unknown      unseen  children none     fresh  → unread
+idle     unknown      unseen  children none     old    → expired
+idle     unknown      unseen  children at work  fresh  → delegated
+idle     unknown      unseen  children at work  old    → delegated"
+`;

@@ -12,7 +12,10 @@ export interface ClaudeAgent {
   startedAt: number;
   sessionId: string;
   name: string;
-  status: string; // idle | busy | …
+  status: string; // idle | busy | waiting (newer CLIs) | …
+  /** With status "waiting": what the process is held on ("permission prompt", "input needed", "sandbox request",
+   *  "worker request", "dialog open"). Newer CLIs only. */
+  waitingFor?: string;
 }
 
 /** Live sessions only by default; `all: true` also returns background sessions that already finished (the
