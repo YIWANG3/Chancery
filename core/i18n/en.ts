@@ -101,7 +101,7 @@ export const en: Record<keyof typeof zh, Msg> = {
   "sessions.newHint": "Start a new session in Claude or Codex; its own app sends it",
   "start.project": "Project for the new session",
   "start.pickProject": "Pick a project",
-  "start.loadingProjects": "Reading the projects in the sidebar of {app}…",
+  "start.loadingProjects": "Reading projects…",
   "start.worktree": "Worktree",
   "start.worktreeHint": "On: the session runs in a worktree of its own and leaves the main checkout alone. Off: it runs in the project folder itself.",
   "start.promptLabel": "First message of the new session",
@@ -330,7 +330,7 @@ export const en: Record<keyof typeof zh, Msg> = {
   "overview.err.claudeIndex": "Claude Desktop session index: {error}",
 
   // Why axctl refused a reply
-  "reply.noAx": "Chancery has no Accessibility permission; nothing was sent. Allow it under Settings and try again.",
+  "reply.noAx": "Chancery has no Accessibility permission; nothing was sent. Turn Chancery on under System Settings → Privacy & Security → Accessibility and try again.",
   "reply.notRunning": "{app} is not open; nothing was sent.",
   "reply.didNotSwitch": "{app} did not switch to this session; nothing was sent.",
   "reply.draft": "That session's composer holds an unsent draft; nothing was sent. Deal with the draft in {app} first.",
@@ -344,7 +344,9 @@ export const en: Record<keyof typeof zh, Msg> = {
   "reply.unconfirmed": "The message went out, but no new turn appeared in this thread; it may have landed in another thread with the same title. Check the Codex app.",
 
   // New session: why the sidebar could not be read, why nothing was started
-  "start.listNoAx": "Chancery has no Accessibility permission, so it cannot read the projects in the sidebar of {app}. Allow it under Settings and try again.",
+  "start.listNoAx": "Chancery has no Accessibility permission yet, so it cannot press anything in {app} for you. Turn Chancery on under System Settings → Privacy & Security → Accessibility; this form recovers by itself.",
+  "start.grant": "Grant access",
+  "start.problem": "Why a session cannot be started right now",
   "start.listNotRunning": "{app} is not open; open it first.",
   "start.listFailed": "Could not read the projects in the sidebar of {app}: {raw}",
   "start.noProjects": "No projects were found in the sidebar of {app}. Expand the sidebar if it is collapsed, or try again in a few seconds.",

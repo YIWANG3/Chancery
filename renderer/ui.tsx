@@ -78,9 +78,10 @@ export function Empty({ children, action }: { children: ReactNode; action?: Reac
 }
 
 /** Exclusive choices drawn as one fill with the chosen item lifted; no borders between items. */
-export function Segmented<T extends string>({ value, options, onChange, className }: { value: T; options: Array<{ value: T; label: ReactNode; title?: string; ariaLabel?: string }>; onChange: (v: T) => void; className?: string }) {
+export function Segmented<T extends string>({ value, options, onChange, className, size = "md" }: { value: T; options: Array<{ value: T; label: ReactNode; title?: string; ariaLabel?: string }>; onChange: (v: T) => void; className?: string; /** `sm` for a bar of filters, where width matters more than a large target. */ size?: "sm" | "md" }) {
+  const sm = size === "sm";
   return (
-    <div role="radiogroup" className={cn("inline-flex shrink-0 items-center h-9 p-1 rounded-md bg-panel2 gap-0.5", className)}>
+    <div role="radiogroup" className={cn("inline-flex shrink-0 items-center rounded-md bg-panel2 gap-0.5", sm ? "h-7 p-0.5" : "h-9 p-1", className)}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -89,7 +90,7 @@ export function Segmented<T extends string>({ value, options, onChange, classNam
           aria-label={o.ariaLabel}
           title={o.title}
           onClick={() => onChange(o.value)}
-          className={cn("no-drag h-7 px-3 rounded-[5px] text-[13px] inline-flex items-center gap-2 whitespace-nowrap transition-colors", value === o.value ? "bg-raised text-text shadow-sm" : "text-muted hover:text-text")}
+          className={cn("no-drag rounded-[5px] inline-flex items-center gap-2 whitespace-nowrap transition-colors", sm ? "h-6 px-2 text-[12px]" : "h-7 px-3 text-[13px]", value === o.value ? "bg-raised text-text shadow-sm" : "text-muted hover:text-text")}
         >
           {o.label}
         </button>
@@ -126,9 +127,9 @@ export function Switch({ checked, onChange, ariaLabel, disabled, className }: { 
 }
 
 /** A native select in the app's field style; options carry their own labels so values can stay raw. */
-export function Select<T extends string>({ value, options, onChange, ariaLabel, className }: { value: T; options: Array<{ value: T; label: string }>; onChange: (v: T) => void; ariaLabel: string; className?: string }) {
+export function Select<T extends string>({ value, options, onChange, ariaLabel, className, size = "md" }: { value: T; options: Array<{ value: T; label: string }>; onChange: (v: T) => void; ariaLabel: string; className?: string; size?: "sm" | "md" }) {
   return (
-    <select aria-label={ariaLabel} value={value} onChange={(e) => onChange(e.target.value as T)} className={cn("no-drag h-9 w-full", className)}>
+    <select aria-label={ariaLabel} value={value} onChange={(e) => onChange(e.target.value as T)} className={cn("no-drag w-full", size === "sm" ? "h-7 min-h-0 py-0 pl-2.5 pr-6 rounded-md text-[12px] [background-position:right_7px_center]" : "h-9", className)}>
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}

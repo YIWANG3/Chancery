@@ -1,8 +1,9 @@
-// The form a new session is started from on the session page: which app, which of the projects its sidebar offers,
-// and the first message. The app itself starts the session (core/sessionStart.ts); nothing is created here.
+// The form a new session is started from on the session page: which app, which project, and the first message. The
+// app itself starts the session (core/sessionStart.ts); nothing is created here.
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { SessionApp } from "@core/overview";
+import type { StartProjects } from "@core/sessionStart";
 import { api } from "./api";
 import { useT } from "./i18n";
 import { APP_LABEL } from "./sessionBits";
@@ -10,7 +11,7 @@ import { Button, Segmented, Select, Switch } from "./ui";
 
 interface Remembered {
   app: SessionApp;
-  /** The project last started in, per app: the two sidebars name projects on their own. */
+  /** The key of the project last started in, per app: one app's sidebar may not have what the other's has. */
   project: Partial<Record<SessionApp, string>>;
   worktree: boolean;
 }
@@ -26,20 +27,22 @@ const load = (): Remembered => {
 };
 
 const said = (err: unknown) => String(err).replace(/^.*Error: /, "");
+/** How often the form looks again while it waits for the person to grant the permission or open the app. */
+const RECHECK_MS = 3000;
 
 /**
- * Return sends, Shift+Return breaks the line, Escape closes. The project menu is read from the app's own sidebar
- * each time the form opens, so it also says up front when the app is closed or the permission is missing. What was
- * typed stays in the box when the app refuses, with the reason under it.
+ * Return sends, Shift+Return breaks the line, Escape closes. The menu is the projects the session list already
+ * shows, so it is there at once; what stands in the way of starting (no Accessibility permission, the app closed)
+ * is said under the form with the way out, and goes away by itself once it is put right. What was typed stays in
+ * the box when the app refuses, with the reason under it.
  */
-export function NewSession({ app: preferred, like, onStarted, onClose }: { app?: SessionApp; /** A project name to preselect when the sidebar has one of that name. */ like?: string; onStarted: (s: { app: SessionApp; project: string }) => void; onClose: () => void }) {
+export function NewSession({ app: preferred, like, onStarted, onClose }: { app?: SessionApp; /** The key of a project to preselect when it can be started in. */ like?: string; onStarted: (s: { app: SessionApp; project: string }) => void; onClose: () => void }) {
   const t = useT();
   const [remembered] = useState(load);
   const [app, setApp] = useState<SessionApp>(preferred ?? remembered.app);
-  const [projects, setProjects] = useState<string[] | null>(null); // null while the sidebar is being read
-  const [listError, setListError] = useState("");
+  const [list, setList] = useState<StartProjects | null>(null); // null while it is being read
   const [attempt, setAttempt] = useState(0);
-  const [project, setProject] = useState("");
+  const [picked, setPicked] = useState("");
   const [worktree, setWorktree] = useState(remembered.worktree);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -49,48 +52,52 @@ export function NewSession({ app: preferred, like, onStarted, onClose }: { app?:
 
   useEffect(() => {
     let stale = false;
-    setProjects(null);
-    setListError("");
-    setProject("");
-    api.session
-      .startProjects(app)
-      .then((names) => {
-        if (stale) return;
-        setProjects(names);
-        // The project the page is narrowed to, else the one used last time, when this sidebar has it. Otherwise
-        // nothing is chosen: a guess here would start a session in the wrong place.
-        const same = (name: string | undefined) => names.find((n) => n.toLowerCase() === name?.toLowerCase());
-        setProject(same(like) ?? same(remembered.project[app]) ?? "");
-      })
-      .catch((err: unknown) => {
-        if (stale) return;
-        setProjects([]);
-        setListError(said(err));
-      });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setList(null);
+    setPicked("");
+    const read = () => {
+      void api.session
+        .startProjects(app)
+        .catch((err: unknown): StartProjects => ({ projects: [], problem: { kind: "failed", text: said(err) } }))
+        .then((res) => {
+          if (stale) return;
+          setList(res);
+          // Keep what is chosen; else the project the page is narrowed to, else the one used last time. Otherwise
+          // nothing is chosen: a guess here would start a session in the wrong place.
+          const has = (key: string | undefined) => (key && res.projects.some((p) => p.key === key) ? key : "");
+          setPicked((now) => has(now) || has(like) || has(remembered.project[app]));
+          // The permission is granted in System Settings and the app is opened elsewhere, so look again by itself.
+          if (res.problem && res.problem.kind !== "failed") timer = setTimeout(read, RECHECK_MS);
+        });
+    };
+    read();
     return () => {
       stale = true;
+      clearTimeout(timer);
     };
     // `like` and the remembered project only matter at the moment the menu is filled.
   }, [app, attempt]);
 
-  const ready = Boolean(text.trim() && project && !busy);
+  const chosen = list?.projects.find((p) => p.key === picked);
+  // Without the permission, or with the app closed, a start can only fail; the line under the form says why.
+  const blocked = Boolean(list?.problem && list.problem.kind !== "failed");
+  const ready = Boolean(text.trim() && chosen && !busy && !blocked);
   const send = async () => {
-    if (!ready) return;
+    if (!ready || !chosen) return;
     setBusy(true);
     setError("");
     try {
-      await api.session.start({ app, project, worktree: app === "claude" ? worktree : undefined }, text);
+      await api.session.start({ app, project: chosen.label, worktree: app === "claude" ? worktree : undefined }, text);
       try {
-        localStorage.setItem(KEY, JSON.stringify({ app, project: { ...remembered.project, [app]: project }, worktree } satisfies Remembered));
+        localStorage.setItem(KEY, JSON.stringify({ app, project: { ...remembered.project, [app]: chosen.key }, worktree } satisfies Remembered));
       } catch {}
-      onStarted({ app, project });
+      onStarted({ app, project: chosen.name });
     } catch (err) {
       setError(said(err));
       setBusy(false);
     }
   };
 
-  const fullName = t(app === "claude" ? "common.claudeDesktop" : "common.codexApp");
   return (
     <section aria-label={t("sessions.new")} className="shrink-0 mx-8 mb-4 rounded-md bg-panel2 p-3 flex flex-col gap-2.5">
       <fieldset disabled={busy} className="contents">
@@ -107,9 +114,9 @@ export function NewSession({ app: preferred, like, onStarted, onClose }: { app?:
           <Select
             ariaLabel={t("start.project")}
             className="!w-auto max-w-[260px]"
-            value={project}
-            onChange={setProject}
-            options={[{ value: "", label: projects ? t("start.pickProject") : t("start.loadingProjects", { app: fullName }) }, ...(projects ?? []).map((p) => ({ value: p, label: p }))]}
+            value={picked}
+            onChange={setPicked}
+            options={[{ value: "", label: list ? t("start.pickProject") : t("start.loadingProjects") }, ...(list?.projects ?? []).map((p) => ({ value: p.key, label: p.name }))]}
           />
           {app === "claude" && (
             <label className="inline-flex items-center gap-2 text-[13px] text-muted" title={t("start.worktreeHint")}>
@@ -146,13 +153,21 @@ export function NewSession({ app: preferred, like, onStarted, onClose }: { app?:
           </Button>
         </div>
       </fieldset>
-      {listError && (
-        <span role="alert" className="flex flex-wrap items-center gap-3 text-[13px] text-error">
-          {listError}
-          <Button size="sm" kind="ghost" onClick={() => setAttempt((n) => n + 1)}>
-            {t("common.retry")}
-          </Button>
-        </span>
+      {list?.problem && (
+        <div role="note" aria-label={t("start.problem")} className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] leading-5 text-warn text-pretty">
+          <span className="min-w-0 flex-1 basis-[320px]">{list.problem.text}</span>
+          {list.problem.kind === "no-ax" ? (
+            <Button size="sm" onClick={() => void api.ax.grant()}>
+              {t("start.grant")}
+            </Button>
+          ) : (
+            list.problem.kind === "failed" && (
+              <Button size="sm" kind="ghost" onClick={() => setAttempt((n) => n + 1)}>
+                {t("common.retry")}
+              </Button>
+            )
+          )}
+        </div>
       )}
       {error && (
         <span role="alert" className="text-[13px] text-error">

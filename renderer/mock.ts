@@ -86,7 +86,17 @@ export function installMock(): void {
   const settings: { theme: string; language: LangPref } = { theme: "system", language: "system" };
   const routes: Record<string, (p: never) => unknown> = {
     "sessions:overview": overview,
-    "session:startProjects": ({ app }: { app: string }) => (app === "claude" ? ["AfterFrame", "Chancery", "notes", "This computer"] : ["Chancery", "media-resource-management", "General"]),
+    // `localStorage["mock.noax"] = "1"` shows the form as it is before the Accessibility permission is granted.
+    "session:startProjects": ({ app }: { app: string }) => {
+      const known = [
+        { key: "/Users/me/workspace/AfterFrame", name: "AfterFrame", label: app === "claude" ? "AfterFrame" : "media-resource-management" },
+        { key: "/Users/me/workspace/chancery-claude", name: "chancery-claude", label: "Chancery" },
+      ];
+      if (localStorage.getItem("mock.noax") === "1") return { projects: known, problem: { kind: "no-ax", text: `Chancery 还没有辅助功能权限，没法替你去按${app === "claude" ? " Claude 桌面端" : " Codex 应用"}。在「系统设置 → 隐私与安全性 → 辅助功能」里打开 Chancery，这里会自己恢复。` } };
+      const only = app === "claude" ? ["notes", "This computer"] : ["General"];
+      return { projects: [...known, ...only.map((label) => ({ key: `sidebar:${label}`, name: label, label }))] };
+    },
+    "ax:grant": () => localStorage.removeItem("mock.noax"),
     "session:start": () => new Promise((resolve) => setTimeout(resolve, 600)),
     "notices:list": () => [
       { id: 2, title: "等你 · 导入时 HEIC 缩略图偶尔是黑的", subtitle: "Claude · AfterFrame", body: "要退回到 ImageIO 解码，还是只对 10-bit 走慢路径？" },

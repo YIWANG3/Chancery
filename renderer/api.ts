@@ -5,6 +5,7 @@ import type { DaemonStatus } from "@core/daemon";
 import type { DiscoveredProject } from "@core/discover";
 import type { TicketDraft } from "@core/clerk";
 import type { Overview } from "@core/overview";
+import type { StartProjects } from "@core/sessionStart";
 import type { Lang, LangPref } from "@core/i18n";
 export type { TicketDraft };
 export type { DiscoveredProject };
@@ -116,7 +117,11 @@ export const api = {
   agents: { claude: () => call<ClaudeAgent[]>("agents:claude") },
   /** Every Claude Desktop and Codex session on this machine, by project. Read from the two apps' own state. */
   sessions: { overview: () => call<Overview>("sessions:overview") },
-  ax: { status: (prompt?: boolean) => call<AxStatus>("ax:status", { prompt }) },
+  ax: {
+    status: (prompt?: boolean) => call<AxStatus>("ax:status", { prompt }),
+    /** Asks macOS for the Accessibility permission and opens the pane of System Settings it is granted in. */
+    grant: () => call<void>("ax:grant"),
+  },
   settings: {
     get: () => call<AppSettings>("settings:get"),
     set: (patch: Partial<Omit<AppSettings, "lang" | "pg">>) => call<AppSettings>("settings:set", patch),
@@ -129,8 +134,9 @@ export const api = {
     open: (open: SessionOpen) => call<void>("session:open", { open }),
     /** Sends one message into the conversation through its own app. Rejects with a sentence for the person. */
     reply: (target: { app: "claude" | "codex"; id: string; title: string }, text: string) => call<void>("session:reply", { target, text }),
-    /** The projects the app's own sidebar offers a new conversation in, by the names it shows. Rejects with a sentence for the person. */
-    startProjects: (app: "claude" | "codex") => call<string[]>("session:startProjects", { app }),
+    /** The projects a new conversation can be started in: the ones the session list shows, paired with what the app's
+     *  sidebar calls them. Comes with the reason when the sidebar could not be read. */
+    startProjects: (app: "claude" | "codex") => call<StartProjects>("session:startProjects", { app }),
     /** Has the app start a new conversation in one of those projects with this first message. Rejects with a sentence for the person. */
     start: (target: { app: "claude" | "codex"; project: string; worktree?: boolean }, prompt: string) => call<void>("session:start", { target, prompt }),
   },

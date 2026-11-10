@@ -123,17 +123,19 @@ export function Sessions() {
 
   return (
     <div className="h-full min-h-0 flex flex-col">
-      <div className="shrink-0 px-8 pb-4 flex flex-wrap items-center gap-3">
+      <div className="shrink-0 px-8 pb-4 flex flex-wrap items-center gap-2">
         <Segmented
+          size="sm"
           value={filter.view}
           onChange={(view) => setFilter({ ...filter, view })}
           options={[
-            { value: "list" as const, label: <List size={15} />, ariaLabel: t("common.list"), title: t("common.list") },
-            { value: "board" as const, label: <Columns3 size={15} />, ariaLabel: t("common.board"), title: t("common.board") },
+            { value: "list" as const, label: <List size={14} />, ariaLabel: t("common.list"), title: t("common.list") },
+            { value: "board" as const, label: <Columns3 size={14} />, ariaLabel: t("common.board"), title: t("common.board") },
           ]}
         />
         {!board && (
           <Segmented
+            size="sm"
             value={filter.bucket}
             onChange={(bucket) => setFilter({ ...filter, bucket })}
             options={[{ value: "" as const, label: t("sessions.allCount", { n: inProject.length }) }, ...BUCKETS.map((b) => ({ value: b, label: `${t(bucketKey(b))} ${byBucket[b].length}` }))]}
@@ -141,6 +143,7 @@ export function Sessions() {
         )}
         {/* Menus, not segmented controls, so the whole bar stays on one line at the default window width. */}
         <Select
+          size="sm"
           ariaLabel={t("sessions.whichApp")}
           className="!w-auto"
           value={filter.app}
@@ -152,20 +155,21 @@ export function Sessions() {
           ]}
         />
         <Select
+          size="sm"
           ariaLabel={t("common.project")}
           className="!w-auto max-w-[190px]"
           value={project}
           onChange={(key) => setFilter({ ...filter, project: key })}
           options={[{ value: "", label: t("sessions.allProjects", { n: inScope.length }) }, ...projects.map((p) => ({ value: p.key, label: `${p.name} ${p.total}${p.needs ? t("sessions.needsSuffix", { n: p.needs }) : ""}` }))]}
         />
-        <Select ariaLabel={t("sessions.timeRange")} className="!w-auto ml-auto" value={filter.days} onChange={(days) => setFilter({ ...filter, days })} options={windowOptions(t)} />
+        <Select size="sm" ariaLabel={t("sessions.timeRange")} className="!w-auto" value={filter.days} onChange={(days) => setFilter({ ...filter, days })} options={windowOptions(t)} />
       </div>
       {titleRow && createPortal(newButton, titleRow)}
 
       {creating && (
         <NewSession
           app={filter.app || undefined}
-          like={project ? nameOf.get(project) : undefined}
+          like={project || undefined}
           onStarted={(s) => {
             setCreating(false);
             setStarted(s);

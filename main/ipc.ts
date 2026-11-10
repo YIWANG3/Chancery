@@ -1,6 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { Daemon, Repo, TicketStatus } from "../core/index.js";
-import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, listStartProjects, replyToSession, sessionOpenFor, startSession, t, type Lang, type Overview, type ReplyTarget, type SessionApp, type SessionOpen, type StartTarget } from "../core/index.js";
+import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, listStartProjects, replyToSession, sessionOpenFor, startSession, t, type Lang, type Overview, type ReplyTarget, type SessionApp, type SessionOpen, type StartProjects, type StartTarget } from "../core/index.js";
 import { run } from "../core/util/run.js";
 import { openSession } from "./openSession.js";
 import type { Settings } from "./settings.js";
@@ -123,6 +123,12 @@ export function registerIpc(deps: IpcDeps): void {
       return { available: false, trusted: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
+  // Asking with the prompt is what puts this app into the system's Accessibility list. The system shows its own
+  // dialog for that only the first time, so the pane with the list is opened as well.
+  h("ax:grant", async () => {
+    await run(deps.axctlPath, ["trusted", "--prompt"], { timeoutMs: 10_000 }).catch(() => {});
+    await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility");
+  });
 
   // Both answers carry the same extras: where the database is, and which language the setting comes out as.
   const withExtras = (s: Settings) => ({ ...s, pg: deps.pgInfo(), lang: deps.lang() });
@@ -149,10 +155,13 @@ export function registerIpc(deps: IpcDeps): void {
     }
     setTimeout(deps.refreshSessions, 1500);
   });
-  // A new conversation, started by the app that will own it. The projects are the ones its sidebar offers, by the
-  // names it shows; the first message goes into the fresh composer. The app takes a few seconds to write the
-  // session into its own files, so the list is read again twice.
-  h<{ app: SessionApp }, string[]>("session:startProjects", ({ app }) => listStartProjects(app, { axctlPath: deps.axctlPath, lang: deps.lang() }));
+  // A new conversation, started by the app that will own it. The menu is the projects the session list already
+  // shows, paired with what the app's sidebar calls them; the first message goes into the fresh composer. The app
+  // takes a few seconds to write the session into its own files, so the list is read again twice.
+  h<{ app: SessionApp }, StartProjects>("session:startProjects", async ({ app }) => {
+    const known = (await deps.sessions()).projects.flatMap((p) => (p.dir ? [{ key: p.key, name: p.name, dir: p.dir }] : []));
+    return listStartProjects(app, known, { axctlPath: deps.axctlPath, lang: deps.lang() });
+  });
   h<{ target: StartTarget; prompt: string }, void>("session:start", async ({ target, prompt }) => {
     const where = `${target.app} "${target.project}"${target.app === "claude" ? (target.worktree ? " +worktree" : " -worktree") : ""}`;
     deps.log(`new session in ${where} (${prompt.trim().length} chars)`);

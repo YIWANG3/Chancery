@@ -8,6 +8,11 @@
 # would write it (an entry in Claude Desktop's index, a thread mid-turn in Codex's databases), in demo-project; the
 # project "gone" is in the list but not in the sidebar any more, and "plain-folder" has no Worktree checkbox.
 set -e
+# While $CHANCERY_FAKE_LOG/no-ax exists, this stands for an app that has not been granted Accessibility.
+if [ -e "${CHANCERY_FAKE_LOG:-/nonexistent}/no-ax" ]; then
+  [ "$1" = trusted ] && { echo '{"ok":true,"trusted":false}'; exit 0; }
+  echo '{"ok":false,"error":"this process is not trusted for Accessibility"}'; exit 2
+fi
 case "$1" in
   trusted) echo '{"ok":true,"trusted":true}'; exit 0 ;;
   probe) echo '{"ok":true,"nodes":900,"projects":["demo-project","plain-folder","gone"],"composer":{"present":false}}'; exit 0 ;;

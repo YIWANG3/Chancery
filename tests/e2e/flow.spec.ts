@@ -1,6 +1,6 @@
 // The Phase 0 loop against fake CLIs: register a project, file a ticket, dispatch it, the worker asks, the human
 // answers, the next worker gets the answer and finishes. No tokens, deterministic, runs in CI.
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CODEX_THREAD, expect, REAL, test, writeClaudeSession, writeCodexThread } from "./fixtures";
 
@@ -375,26 +375,39 @@ test("新建会话：在会话页选一家、选它侧栏里的项目、写第�
     const n = Math.max(...readdirSync(env.fakeLog).flatMap((f) => (/^axctl-(\d+)\.args$/.exec(f) ?? []).slice(1).map(Number)));
     return { args: readFileSync(join(env.fakeLog, `axctl-${n}.args`), "utf8").trim().split("\n"), prompt: readFileSync(join(env.fakeLog, `axctl-${n}.prompt`), "utf8") };
   };
+  // Before Chancery has the Accessibility permission: the menu is the projects the page already shows, the form
+  // says where the permission is granted, and nothing can be started. Once it is granted the form comes right by
+  // itself, and the menu also has what only the app's sidebar offers.
+  mkdirSync(env.fakeLog, { recursive: true });
+  writeFileSync(join(env.fakeLog, "no-ax"), "");
   await win.getByRole("button", { name: "新建会话" }).click();
   const form = win.getByRole("region", { name: "新建会话" });
   const project = form.getByRole("combobox", { name: "新会话的项目" });
   const box = form.getByRole("textbox", { name: "新会话的第一句话" });
-  // The menu is what the app's own sidebar offers; nothing is chosen until you choose, and nothing can be sent.
-  await expect(project.getByRole("option")).toHaveText(["选一个项目", "demo-project", "plain-folder", "gone"]);
-  await expect(project).toHaveValue("");
+  const why = form.getByRole("note", { name: "现在开不了新会话的原因" });
+  // The second one is the folder the stand-in sessions outside any repository ran in; no sidebar has it.
+  await expect(project.getByRole("option")).toHaveText(["选一个项目", "demo-project", /^chancery-e2e-/]);
+  await expect(why).toContainText("系统设置 → 隐私与安全性 → 辅助功能");
+  await expect(why.getByRole("button", { name: "去授权" })).toBeVisible();
+  await project.selectOption({ label: "demo-project" });
   await box.fill("给 README 加一节「排错」");
   await expect(form.getByRole("button", { name: "开始" })).toBeDisabled();
+  rmSync(join(env.fakeLog, "no-ax"));
+  await expect(why).toHaveCount(0, { timeout: 15_000 });
+  await expect(project.getByRole("option")).toHaveText(["选一个项目", "demo-project", "plain-folder", "gone"]);
+  await expect(project.locator("option:checked")).toHaveText("demo-project");
+  await expect(form.getByRole("button", { name: "开始" })).toBeEnabled();
 
   // A project that has left the sidebar since the menu was read, then a folder with no Worktree switch.
-  await project.selectOption("gone");
+  await project.selectOption({ label: "gone" });
   await box.press("Enter");
   await expect(form.getByRole("alert")).toHaveText("Claude 桌面端的侧栏里没有「gone」，没有发送。");
   await expect(box).toHaveValue("给 README 加一节「排错」");
-  await project.selectOption("plain-folder");
+  await project.selectOption({ label: "plain-folder" });
   await form.getByRole("button", { name: "开始" }).click();
   await expect(form.getByRole("alert")).toContainText("关掉 Worktree 再试");
 
-  await project.selectOption("demo-project");
+  await project.selectOption({ label: "demo-project" });
   await form.getByRole("button", { name: "开始" }).click();
   await expect(win.getByRole("status")).toHaveText("已发到 Claude 的「demo-project」，新会话过几秒出现在「运行中」。");
   await expect(form).toHaveCount(0);
@@ -404,10 +417,10 @@ test("新建会话：在会话页选一家、选它侧栏里的项目、写第�
   await expect(win.getByRole("listitem").filter({ hasText: "给 README 加一节「排错」" })).toBeVisible({ timeout: 30_000 });
   expect(readFileSync(join(env.userData, "logs", "chancery.log"), "utf8")).toContain('new session in claude "demo-project" +worktree');
 
-  // Codex: its own sidebar's projects, no worktree switch; the project used last time in Claude is remembered there,
+  // Codex: what its own sidebar has, no worktree switch; the project used last time in Claude is remembered there,
   // not here. Worktree off for Claude is remembered and sent as an explicit flag.
   await win.getByRole("button", { name: "新建会话" }).click();
-  await expect(project).toHaveValue("demo-project");
+  await expect(project.locator("option:checked")).toHaveText("demo-project");
   await form.getByRole("switch", { name: "Worktree" }).click();
   await box.fill("不要 worktree 的一条");
   await box.press("Enter");
@@ -418,7 +431,7 @@ test("新建会话：在会话页选一家、选它侧栏里的项目、写第�
   await form.getByRole("radio", { name: "Codex" }).click();
   await expect(form.getByRole("switch", { name: "Worktree" })).toHaveCount(0);
   await expect(project.getByRole("option")).toHaveText(["选一个项目", "demo-project"]);
-  await project.selectOption("demo-project");
+  await project.selectOption({ label: "demo-project" });
   await box.fill("对照一下两家的线程模型");
   await box.press("Enter");
   await expect(win.getByRole("status")).toContainText("已发到 Codex 的「demo-project」");

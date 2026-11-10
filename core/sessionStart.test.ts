@@ -1,8 +1,9 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { explainListError, explainStartError, listStartProjects, startSession } from "./sessionStart.js";
+import { explainStartError, listProblem, listStartProjects, startSession } from "./sessionStart.js";
 
 // A stand-in for axctl: answers with $ANSWER and leaves its arguments and the prompt it was handed next to itself.
 const dir = mkdtempSync(join(tmpdir(), "chancery-start-test-"));
@@ -20,23 +21,56 @@ const answer = (obj: unknown) => writeFileSync(join(dir, "answer"), JSON.stringi
 const args = () => readFileSync(join(dir, "args"), "utf8").trim().split("\n");
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
+// Two projects the session list knows: one whose repository is named differently from its folder, one without a remote.
+const repoDir = join(dir, "media-resource-management");
+const plainDir = join(dir, "notes");
+mkdirSync(repoDir);
+mkdirSync(plainDir);
+execFileSync("git", ["init", "-q", repoDir]);
+execFileSync("git", ["-C", repoDir, "remote", "add", "origin", "git@github.com:someone/AfterFrame.git"]);
+const known = [
+  { key: repoDir, name: "media-resource-management", dir: repoDir },
+  { key: plainDir, name: "notes", dir: plainDir },
+];
+
 describe("listStartProjects", () => {
-  it("returns the names the app's sidebar offers, once each, in its order", async () => {
-    answer({ ok: true, projects: ["Chancery", "AfterFrame", "Chancery", " "] });
-    expect(await listStartProjects("claude", { axctlPath: fake })).toEqual(["Chancery", "AfterFrame"]);
+  it("pairs each known project with what the sidebar calls it, by repository name or by folder name", async () => {
+    answer({ ok: true, projects: ["AfterFrame", "Chancery", "notes", "Chancery", " "] });
+    expect(await listStartProjects("claude", known, { axctlPath: fake })).toEqual({
+      projects: [
+        { key: repoDir, name: "media-resource-management", label: "AfterFrame" },
+        { key: plainDir, name: "notes", label: "notes" },
+        { key: "sidebar:Chancery", name: "Chancery", label: "Chancery" },
+      ],
+    });
     expect(args()).toEqual(["probe"]);
-    expect(await listStartProjects("codex", { axctlPath: fake })).toEqual(["Chancery", "AfterFrame"]);
+    // The Codex app files the same folder under the folder's name.
+    answer({ ok: true, projects: ["General", "media-resource-management"] });
+    expect(await listStartProjects("codex", known, { axctlPath: fake })).toEqual({
+      projects: [
+        { key: repoDir, name: "media-resource-management", label: "media-resource-management" },
+        { key: "sidebar:General", name: "General", label: "General" },
+      ],
+    });
     expect(args()).toEqual(["codex-probe"]);
   });
-  it("says so when the sidebar shows no projects, instead of offering an empty menu", async () => {
-    answer({ ok: true, projects: [] });
-    await expect(listStartProjects("claude", { axctlPath: fake })).rejects.toThrow("Claude 桌面端的侧栏里没有读到项目");
-  });
-  it("explains a closed app or a missing permission before anything is typed", async () => {
+  it("still lists the known projects when the sidebar cannot be read, with the reason", async () => {
+    const guessed = [
+      { key: repoDir, name: "media-resource-management", label: "AfterFrame" },
+      { key: plainDir, name: "notes", label: "notes" },
+    ];
+    answer({ ok: false, error: "this process is not trusted for Accessibility" });
+    const noAx = await listStartProjects("claude", known, { axctlPath: fake });
+    expect(noAx.projects).toEqual(guessed);
+    expect(noAx.problem?.kind).toBe("no-ax");
+    expect(noAx.problem?.text).toContain("系统设置 → 隐私与安全性 → 辅助功能");
     answer({ ok: false, error: "Codex app is not running" });
-    await expect(listStartProjects("codex", { axctlPath: fake })).rejects.toThrow("Codex 应用没有开着，先打开它。");
-    expect(explainListError("claude", "this process is not trusted for Accessibility")).toContain("辅助功能");
-    expect(explainListError("claude", "something else", "en")).toBe("Could not read the projects in the sidebar of Claude Desktop: something else");
+    expect((await listStartProjects("codex", known, { axctlPath: fake })).problem).toEqual({ kind: "not-running", text: "Codex 应用没有开着，先打开它。" });
+    answer({ ok: true, projects: [] });
+    const empty = await listStartProjects("claude", known, { axctlPath: fake });
+    expect(empty.projects).toEqual(guessed);
+    expect(empty.problem).toMatchObject({ kind: "failed", text: expect.stringContaining("Claude 桌面端的侧栏里没有读到项目") });
+    expect(listProblem("claude", "something else", "en")).toEqual({ kind: "failed", text: "Could not read the projects in the sidebar of Claude Desktop: something else" });
   });
 });
 

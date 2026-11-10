@@ -99,7 +99,7 @@ export const zh = {
   "sessions.newHint": "在 Claude 或 Codex 里开一个新会话，由它自己的应用发出去",
   "start.project": "新会话的项目",
   "start.pickProject": "选一个项目",
-  "start.loadingProjects": "在读 {app}侧栏里的项目…",
+  "start.loadingProjects": "在读项目…",
   "start.worktree": "Worktree",
   "start.worktreeHint": "打开：会话在它自己的 worktree 里跑，不动主目录。关掉：直接在项目目录里跑。",
   "start.promptLabel": "新会话的第一句话",
@@ -328,7 +328,7 @@ export const zh = {
   "overview.err.claudeIndex": "Claude 桌面端的会话索引：{error}",
 
   // 回复会话时 axctl 的拒绝原因
-  "reply.noAx": "Chancery 没有辅助功能权限，没有发送。到「设置」里授权后再试。",
+  "reply.noAx": "Chancery 没有辅助功能权限，没有发送。在「系统设置 → 隐私与安全性 → 辅助功能」里打开 Chancery 后再试。",
   "reply.notRunning": "{app}没有开着，没有发送。",
   "reply.didNotSwitch": "{app}没有切到这条会话，没有发送。",
   "reply.draft": "那条会话的输入框里有一段没发出去的草稿，没有发送。先去 {app}里处理掉草稿。",
@@ -342,7 +342,9 @@ export const zh = {
   "reply.unconfirmed": "消息发出去了，但这条线程里没有出现新的一轮，可能进了另一条同名的线程。去 Codex 应用里看一下。",
 
   // 新建会话：读不到侧栏、没开成的原因
-  "start.listNoAx": "Chancery 没有辅助功能权限，读不到 {app}侧栏里的项目。到「设置」里授权后再试。",
+  "start.listNoAx": "Chancery 还没有辅助功能权限，没法替你去按{app}。在「系统设置 → 隐私与安全性 → 辅助功能」里打开 Chancery，这里会自己恢复。",
+  "start.grant": "去授权",
+  "start.problem": "现在开不了新会话的原因",
   "start.listNotRunning": "{app}没有开着，先打开它。",
   "start.listFailed": "读不到 {app}侧栏里的项目：{raw}",
   "start.noProjects": "{app}的侧栏里没有读到项目。侧栏收起来的话先展开，或者过几秒再试。",
