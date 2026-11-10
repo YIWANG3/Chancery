@@ -31,5 +31,6 @@ module.exports = {
       zIndex: { drawer: "30", modal: "40" },
     },
   },
-  plugins: [],
+  // `glass:` applies in a window standing on Liquid Glass (the `glass` class on <html>, see renderer/styles.css).
+  plugins: [({ addVariant }) => addVariant("glass", ":root.glass &")],
 };

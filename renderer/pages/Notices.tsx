@@ -16,7 +16,7 @@ export function Notices() {
     return api.notices.onChange(load);
   }, []);
   return (
-    <div className="h-full bg-panel p-1.5 flex flex-col overflow-hidden">
+    <div className="h-full bg-panel glass:bg-transparent p-1.5 flex flex-col overflow-hidden">
       {items.map((n) => (
         <div key={n.id} className="h-[84px] shrink-0 flex items-start gap-1 rounded-md hover:bg-panel2">
           <button type="button" onClick={() => void api.notices.open(n.id)} className="flex-1 min-w-0 h-full px-1.5 py-3 flex flex-col text-left cursor-pointer">

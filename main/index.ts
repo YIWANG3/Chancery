@@ -5,6 +5,7 @@ import { delimiter, join } from "node:path";
 import { createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, heldUpSessions, migrate, resolveLang, t, triageTicket, type Daemon, type Db, type Lang, type SessionRow, type Triage } from "../core/index.js";
 import { broadcast, registerIpc } from "./ipc.js";
 import { createFloatControl, type FloatControl } from "./floatWindow.js";
+import { loadGlass } from "./glass.js";
 import { createNotifier } from "./notify.js";
 import { openSession } from "./openSession.js";
 import { startSessionWatch, type SessionWatch } from "./sessionWatch.js";
@@ -52,6 +53,11 @@ const log = (msg: string) => {
 
 const settingsPath = join(userData, "settings.json");
 const axctlPath = process.env.CHANCERY_AXCTL || join(app.getAppPath(), "native", "bin", "axctl");
+// CHANCERY_GLASS=0 keeps the floating windows solid on a machine that could put them on Liquid Glass.
+const glass = loadGlass(join(app.getAppPath(), "native", "bin", "glass.node"), log);
+const GLASS = glass.available && process.env.CHANCERY_GLASS !== "0";
+/** The corner radius macOS 26 gives a window without a toolbar; the glass and the page's veil are cut to it. */
+const GLASS_RADIUS = 16;
 let settings: Settings = loadSettings(settingsPath);
 let pg: PgHandle | null = null;
 let db: Db | null = null;
@@ -100,8 +106,10 @@ function clerkFor(): Triage | null {
 const BG = { light: "#f7f7f7", dark: "#000000" } as const;
 const bg = () => (nativeTheme.shouldUseDarkColors ? BG.dark : BG.light);
 nativeTheme.themeSource = settings.theme;
+/** Windows standing on Liquid Glass: they have no background color to keep in step with the theme. */
+const onGlass = new WeakSet<BrowserWindow>();
 nativeTheme.on("updated", () => {
-  for (const win of BrowserWindow.getAllWindows()) win.setBackgroundColor(bg());
+  for (const win of BrowserWindow.getAllWindows()) if (!onGlass.has(win)) win.setBackgroundColor(bg());
 });
 const applyTheme = (theme: ThemePref) => {
   nativeTheme.themeSource = theme;
@@ -243,7 +251,9 @@ function refreshAttention() {
   );
 }
 
-/** A window that floats above everything on every desktop and never comes forward on its own. */
+/** A window that floats above everything on every desktop and never comes forward on its own. On macOS 26 it
+ *  stands on clear Liquid Glass, so what it covers still shows through; its page is told with `?glass=1` and then
+ *  paints only a thin veil for legibility instead of a background (renderer/styles.css). Elsewhere it is solid. */
 function floating(route: string, opts: { width: number; height: number; focusable: boolean; movable?: boolean }): BrowserWindow {
   const win = new BrowserWindow({
     width: opts.width,
@@ -259,13 +269,16 @@ function floating(route: string, opts: { width: number; height: number; focusabl
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: true,
-    backgroundColor: bg(),
+    ...(GLASS ? { transparent: true } : { backgroundColor: bg() }),
     show: false,
     webPreferences: { preload: join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true },
   });
   win.setAlwaysOnTop(true, "floating");
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-  void loadRoute(win, route);
+  const glassy = GLASS && glass.attach(win, { radius: GLASS_RADIUS, clear: true });
+  if (glassy) onGlass.add(win);
+  else if (GLASS) win.setBackgroundColor(bg());
+  void loadRoute(win, glassy ? `${route}?glass=1` : route);
   return win;
 }
 

@@ -89,9 +89,9 @@ export function Float() {
 
   const mini = prefs.mode === "mini";
   return (
-    <div ref={root} style={{ width: WIDTH[prefs.mode] }} className="bg-panel text-text text-[13px] select-none">
+    <div ref={root} style={{ width: WIDTH[prefs.mode] }} className="bg-panel glass:bg-transparent text-text text-[13px] select-none">
       {/* The header is the handle: drag anywhere on it that is not a button. */}
-      <div className={cn("drag flex items-center gap-3 px-3", mini ? "h-10" : "h-10 border-b border-line")}>
+      <div className={cn("drag flex items-center gap-3 px-3", mini ? "h-10" : "h-10 border-b border-line glass:border-text/10")}>
         <span className="flex items-center gap-3 min-w-0" aria-label={t("float.counts")}>
           {SHOWN.map((b) => (
             <span key={b} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums", counts[b] ? "text-text" : "text-muted")} title={t(bucketKey(b))}>

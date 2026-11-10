@@ -41,6 +41,7 @@ bin/chancery sessions --json
 - 主窗口的最小化形态：一个总在最前面、所有桌面都可见的小窗（`main/floatWindow.ts`、`renderer/pages/Float.tsx`），列出在等你、待看、在跑的会话，最多 5 条或 10 条，已结束的不占位置。收起后只剩一行计数。每行能跳转、能回复；点标题跳转。主窗口和浮窗二选一：最小化时主窗口隐藏，浮窗上的「回到主窗口」（或 Esc、Dock 图标、菜单栏的「打开」）把主窗口叫回来并关掉浮窗。
 - 第一次出现在屏幕右上角，离边缘 16px；按住顶部一行可以拖到任意位置，位置记住。变大之后会超出屏幕的话自动拉回来（`core/util/rect.ts`）。
 - 入口：窗口右上角标题行里的最小化按钮（每个页面都有）、菜单栏图标的菜单；设置里可选「启动时最小化到浮窗」。出现和变大小时不抢焦点，点进去打字时才拿焦点。
+- macOS 26 上浮窗和提醒浮窗是液态玻璃：窗口透明，底下垫一层系统的 `NSGlassEffectView`（clear 样式，比 regular 和 Electron 自带的 `vibrancy` 都透），页面自己不画底色，只盖一层薄纱保证字看得清（深色 35% 黑、浅色 45% 白，`renderer/styles.css` 里的 `--glass-veil`，要更透就调它）。玻璃是 `native/glass` 这个小插件垫进去的（`main/glass.ts`），只用公开 API。macOS 26 以前没有这个视图，窗口照旧是实底；`CHANCERY_GLASS=0` 可以在 26 上也关掉。
 
 快速回复：
 
@@ -87,7 +88,7 @@ npm run dist       # 打成 dist/mac-arm64/Chancery.app（electron-builder，Dev
 ```
 core/        不依赖 Electron；守护进程、仓库层、执行器、迁移；以后常开机器上 headless 跑同一份
 main/        Electron 主进程：内置 PG、IPC、托盘、全局快捷键（⌘⇧Space 记一条）
-native/      axctl（Swift）：辅助功能驱动 Claude Desktop
+native/      axctl（Swift）：辅助功能驱动 Claude Desktop；glass（Objective-C++ 的 Node 插件）：浮窗底下的液态玻璃。`npm run build:native` 两个都编，`bash scripts/build-native.sh glass` 只编后一个
 preload/     contextBridge：window.chancery.invoke / onChanged
 renderer/    React + Tailwind：会话、项目、Agent、设置、QuickCapture、提醒浮窗
 cli/         bin/chancery：register / projects / ticket / tickets / show / status / draft / tick（要 app 在跑，PG 在它里面）

@@ -63,6 +63,30 @@
   }
 }
 
+/*
+  A floating window on Liquid Glass (macOS 26: the main process puts clear glass behind the page and adds
+  `?glass=1` to its address, which main.tsx turns into the `glass` class; components follow with `glass:`).
+  The glass is the window's background, so the page paints none of its own: only a thin veil toward the theme's
+  side, cut to the glass's corners, so text stays readable whatever is behind. Clear glass under this veil lets
+  more through than the system's regular glass. Greys that work on a solid panel sink into a mid-tone backdrop,
+  so muted text moves toward the text color and the fills get a little stronger.
+*/
+:root.glass {
+  --glass-veil: 255 255 255 / 0.45;
+  --muted-text: 70 70 70;
+  --fill-1: 0.07;
+  --fill-2: 0.12;
+}
+@media (prefers-color-scheme: dark) {
+  :root.glass {
+    --glass-veil: 0 0 0 / 0.35;
+    --text-color: 245 245 245;
+    --muted-text: 200 200 200;
+    --fill-1: 0.1;
+    --fill-2: 0.16;
+  }
+}
+
 /* The root stays at 16px so Tailwind's rem scale means what it says (h-9 = 36px); body text is 14px. */
 html {
   font-size: 16px;
@@ -80,6 +104,15 @@ body,
 }
 body {
   font-size: 14px;
+}
+:root.glass,
+:root.glass body {
+  background: transparent;
+}
+:root.glass #root {
+  background: rgb(var(--glass-veil));
+  border-radius: 16px;
+  overflow: hidden;
 }
 
 * {
