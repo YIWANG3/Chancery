@@ -71,7 +71,7 @@ npm run test:e2e   # Playwright 起真的 Electron app 跑一遍闭环（先 bui
 npm run dist       # 打成 dist/mac-arm64/Chancery.app（electron-builder，Developer ID 签名、不公证、不用 asar），拷到 /Applications 即可
 ```
 
-打包出来的 app 叫 Chancery，数据目录仍是 `~/Library/Application Support/chancery-claude`，和 `npm run dev` 共用（含单实例锁，所以两者不会同时跑）。签名用钥匙串里的 Developer ID，没有的话 electron-builder 会临时签名，macOS 就不给通知和稳定的辅助功能授权。还没有图标，Dock 上是 Electron 默认的。
+打包出来的 app 叫 Chancery，数据目录仍是 `~/Library/Application Support/chancery-claude`，和 `npm run dev` 共用（含单实例锁，所以两者不会同时跑）。签名用钥匙串里的 Developer ID，没有的话 electron-builder 会临时签名，macOS 就不给通知和稳定的辅助功能授权。图标是暂用的文字标（深色底上的「Ch」，`build/icon.icns`，`bash scripts/make-icon.sh` 从 `scripts/make-icon.swift` 重画）；`npm run dev` 跑的仍是 Electron 默认图标，Dock 上靠这个分清是打包的还是开发的。
 
 ## 测试
 
