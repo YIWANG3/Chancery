@@ -97,6 +97,17 @@ export const en: Record<keyof typeof zh, Msg> = {
   "sessions.noneMatch": "No sessions match the filter.",
   "sessions.noneInWindow": "Neither app has sessions in this period.",
   "sessions.count": { one: "{n} session", other: "{n} sessions" },
+  "sessions.new": "New session",
+  "sessions.newHint": "Start a new session in Claude or Codex; its own app sends it",
+  "start.project": "Project for the new session",
+  "start.pickProject": "Pick a project",
+  "start.loadingProjects": "Reading the projects in the sidebar of {app}…",
+  "start.worktree": "Worktree",
+  "start.worktreeHint": "On: the session runs in a worktree of its own and leaves the main checkout alone. Off: it runs in the project folder itself.",
+  "start.promptLabel": "First message of the new session",
+  "start.placeholder": "Say what it should do; Return has {app} start a new session",
+  "start.send": "Start",
+  "start.sent": "Sent to “{project}” in {app}; the new session shows up under Running in a few seconds.",
 
   // Floating window
   "float.counts": "Session counts",
@@ -331,4 +342,13 @@ export const en: Record<keyof typeof zh, Msg> = {
   "reply.notSent": "Not sent: {raw}",
   "reply.empty": "Nothing to send.",
   "reply.unconfirmed": "The message went out, but no new turn appeared in this thread; it may have landed in another thread with the same title. Check the Codex app.",
+
+  // New session: why the sidebar could not be read, why nothing was started
+  "start.listNoAx": "Chancery has no Accessibility permission, so it cannot read the projects in the sidebar of {app}. Allow it under Settings and try again.",
+  "start.listNotRunning": "{app} is not open; open it first.",
+  "start.listFailed": "Could not read the projects in the sidebar of {app}: {raw}",
+  "start.noProjects": "No projects were found in the sidebar of {app}. Expand the sidebar if it is collapsed, or try again in a few seconds.",
+  "start.noProject": "The sidebar of {app} has no “{project}”; nothing was sent.",
+  "start.noWorktree": "A new session in this project has no Worktree switch (a folder that is not a git repository has none); nothing was sent. Turn Worktree off and try again.",
+  "start.noComposer": "{app} did not open the composer of a new session; nothing was sent.",
 };

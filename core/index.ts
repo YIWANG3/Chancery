@@ -11,6 +11,7 @@ export { listClaudeAgents } from "./claude/sessions.js";
 export { buildOverview, type Overview, type OverviewOptions, type ProjectGroup, type SessionApp, type SessionRow, type SessionState } from "./overview.js";
 export { createAlertTracker, heldUpSessions, type AlertKind, type AlertTracker, type SessionAlert } from "./sessionAlerts.js";
 export { replyToSession, type ReplyTarget } from "./sessionReply.js";
+export { listStartProjects, startSession, type StartTarget } from "./sessionStart.js";
 export { LANGS, localeOf, resolveLang, t, translator, type Lang, type LangPref, type MsgKey, type Translate } from "./i18n/index.js";
 export * from "./types.js";
 export { createChanceryMcpServer, type McpDeps } from "./mcp.js";

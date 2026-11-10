@@ -95,6 +95,17 @@ export const zh = {
   "sessions.noneMatch": "没有符合筛选的会话。",
   "sessions.noneInWindow": "这段时间里两家都没有会话。",
   "sessions.count": "{n} 个会话",
+  "sessions.new": "新建会话",
+  "sessions.newHint": "在 Claude 或 Codex 里开一个新会话，由它自己的应用发出去",
+  "start.project": "新会话的项目",
+  "start.pickProject": "选一个项目",
+  "start.loadingProjects": "在读 {app}侧栏里的项目…",
+  "start.worktree": "Worktree",
+  "start.worktreeHint": "打开：会话在它自己的 worktree 里跑，不动主目录。关掉：直接在项目目录里跑。",
+  "start.promptLabel": "新会话的第一句话",
+  "start.placeholder": "写下要它做的事，回车后由 {app} 开一个新会话",
+  "start.send": "开始",
+  "start.sent": "已发到 {app} 的「{project}」，新会话过几秒出现在「运行中」。",
 
   // 浮窗
   "float.counts": "会话计数",
@@ -329,4 +340,13 @@ export const zh = {
   "reply.notSent": "没有发送：{raw}",
   "reply.empty": "没有内容，没有发送。",
   "reply.unconfirmed": "消息发出去了，但这条线程里没有出现新的一轮，可能进了另一条同名的线程。去 Codex 应用里看一下。",
+
+  // 新建会话：读不到侧栏、没开成的原因
+  "start.listNoAx": "Chancery 没有辅助功能权限，读不到 {app}侧栏里的项目。到「设置」里授权后再试。",
+  "start.listNotRunning": "{app}没有开着，先打开它。",
+  "start.listFailed": "读不到 {app}侧栏里的项目：{raw}",
+  "start.noProjects": "{app}的侧栏里没有读到项目。侧栏收起来的话先展开，或者过几秒再试。",
+  "start.noProject": "{app}的侧栏里没有「{project}」，没有发送。",
+  "start.noWorktree": "这个项目的新会话没有 Worktree 开关（不是 git 仓库的目录就没有），没有发送。关掉 Worktree 再试。",
+  "start.noComposer": "{app}没有打开新会话的输入框，没有发送。",
 } as const;

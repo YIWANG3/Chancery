@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Columns3, List } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Columns3, List, Plus } from "lucide-react";
 import type { Overview, SessionApp, SessionRow } from "@core/overview";
 import { api } from "../api";
 import { cn } from "../cn";
 import { useChanged } from "../hooks";
 import { useT } from "../i18n";
+import { NewSession } from "../NewSession";
 import { APP_LABEL, BUCKET, ProjectTag, SessionItem, State, ago, bucketKey, useReply, windowOptions, type Bucket, type ProjectTagProps, type WindowDays } from "../sessionBits";
-import { Empty, Segmented, Select } from "../ui";
+import { Button, Empty, PAGE_ACTIONS, Segmented, Select } from "../ui";
 
 const BUCKETS = ["needs", "look", "running", "ended"] as const;
 
@@ -40,6 +42,18 @@ export function Sessions() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>(load);
+  // The new-session form sits under the toolbar while it is open; after a start a line says where it went, until
+  // the session has had time to show up in the list by itself.
+  const [creating, setCreating] = useState(false);
+  const [started, setStarted] = useState<{ app: SessionApp; project: string } | null>(null);
+  // The button lives in the window's title row, which the app shell renders; it is there once this has mounted.
+  const [titleRow, setTitleRow] = useState<HTMLElement | null>(null);
+  useEffect(() => setTitleRow(document.getElementById(PAGE_ACTIONS)), []);
+  useEffect(() => {
+    if (!started) return;
+    const timer = setTimeout(() => setStarted(null), 30_000);
+    return () => clearTimeout(timer);
+  }, [started]);
 
   // Sessions live in the two apps' own files, not in our database. The main process watches them and says when
   // something changed; the timer only keeps the "minutes ago" honest.
@@ -97,6 +111,12 @@ export function Sessions() {
   if (!overview) return <Empty>{failed ? t("sessions.readFailed", { error: failed }) : t("sessions.loading")}</Empty>;
 
   const board = filter.view === "board";
+  const newButton = (
+    <Button size="sm" kind={creating ? "default" : "primary"} title={t("sessions.newHint")} onClick={() => setCreating((v) => !v)}>
+      <Plus size={15} />
+      {t("sessions.new")}
+    </Button>
+  );
   const rows = !board && filter.bucket ? byBucket[filter.bucket] : inProject;
   // Every row and card carries its project as a tag; clicking the tag narrows the page to that project, or widens it again.
   const tagOf = (s: SessionRow) => ({ name: nameOf.get(s.projectKey) ?? t("common.other"), active: project === s.projectKey, onClick: () => setFilter({ ...filter, project: project === s.projectKey ? "" : s.projectKey }) });
@@ -140,6 +160,24 @@ export function Sessions() {
         />
         <Select ariaLabel={t("sessions.timeRange")} className="!w-auto ml-auto" value={filter.days} onChange={(days) => setFilter({ ...filter, days })} options={windowOptions(t)} />
       </div>
+      {titleRow && createPortal(newButton, titleRow)}
+
+      {creating && (
+        <NewSession
+          app={filter.app || undefined}
+          like={project ? nameOf.get(project) : undefined}
+          onStarted={(s) => {
+            setCreating(false);
+            setStarted(s);
+          }}
+          onClose={() => setCreating(false)}
+        />
+      )}
+      {started && !creating && (
+        <div role="status" className="shrink-0 mx-8 mb-4 text-[13px] text-muted">
+          {t("start.sent", { app: APP_LABEL[started.app], project: started.project })}
+        </div>
+      )}
 
       {(failed || overview.errors.length > 0) && (
         <div className="shrink-0 mx-8 mb-4 rounded-md bg-panel2 px-4 py-3 text-[13px] text-warn flex flex-col gap-1">

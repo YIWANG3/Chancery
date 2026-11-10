@@ -129,6 +129,10 @@ export const api = {
     open: (open: SessionOpen) => call<void>("session:open", { open }),
     /** Sends one message into the conversation through its own app. Rejects with a sentence for the person. */
     reply: (target: { app: "claude" | "codex"; id: string; title: string }, text: string) => call<void>("session:reply", { target, text }),
+    /** The projects the app's own sidebar offers a new conversation in, by the names it shows. Rejects with a sentence for the person. */
+    startProjects: (app: "claude" | "codex") => call<string[]>("session:startProjects", { app }),
+    /** Has the app start a new conversation in one of those projects with this first message. Rejects with a sentence for the person. */
+    start: (target: { app: "claude" | "codex"; project: string; worktree?: boolean }, prompt: string) => call<void>("session:start", { target, prompt }),
   },
   main: { show: () => call<void>("main:show") },
   /** The floating session window: the main window's minimized form. Showing one puts the other away. */

@@ -25,6 +25,12 @@ const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 if (process.env.CHANCERY_USER_DATA) {
   app.setPath("userData", process.env.CHANCERY_USER_DATA);
   app.setPath("logs", join(process.env.CHANCERY_USER_DATA, "logs"));
+} else {
+  // The packaged app is called "Chancery" on the Dock, but its settings, Postgres cluster and logs stay where the
+  // dev build, the README and the CLI expect them: ~/Library/Application Support/chancery-claude and
+  // ~/Library/Logs/chancery-claude.
+  app.setPath("userData", join(app.getPath("appData"), "chancery-claude"));
+  app.setPath("logs", join(homedir(), "Library", "Logs", "chancery-claude"));
 }
 const userData = app.getPath("userData");
 const logDir = join(app.getPath("logs"));

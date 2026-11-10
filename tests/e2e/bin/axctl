@@ -1,17 +1,22 @@
 #!/bin/bash
 # A stand-in for native/bin/axctl used by the e2e tests: nothing here touches a real Claude Desktop or Codex app.
-# The two reply commands record their arguments and the message under $CHANCERY_FAKE_LOG (axctl-<n>.args /
-# axctl-<n>.prompt) and answer like the real one: a message containing 草稿 is refused the way a composer that
-# already holds a draft is; a Codex reply starts a new turn in the stand-in history database, which is what the
-# app would do.
+# The reply and new-session commands record their arguments and the message under $CHANCERY_FAKE_LOG
+# (axctl-<n>.args / axctl-<n>.prompt) and answer like the real one: a message containing 草稿 is refused the way a
+# composer that already holds a draft is; a Codex reply starts a new turn in the stand-in history database, which is
+# what the app would do.
+# The two probes list the projects a sidebar offers. A new session lands in the stand-in state the way the app
+# would write it (an entry in Claude Desktop's index, a thread mid-turn in Codex's databases), in demo-project; the
+# project "gone" is in the list but not in the sidebar any more, and "plain-folder" has no Worktree checkbox.
 set -e
 case "$1" in
   trusted) echo '{"ok":true,"trusted":true}'; exit 0 ;;
-  probe) echo '{"ok":true,"nodes":0,"projects":[],"composer":{"present":false}}'; exit 0 ;;
-  reply|codex-reply) ;;
+  probe) echo '{"ok":true,"nodes":900,"projects":["demo-project","plain-folder","gone"],"composer":{"present":false}}'; exit 0 ;;
+  codex-probe) echo '{"ok":true,"nodes":900,"projects":["demo-project"],"composer":{"present":true}}'; exit 0 ;;
+  reply|codex-reply|new-session|codex-new-chat) ;;
   *) echo '{"ok":false,"error":"fake axctl: unknown command"}'; exit 1 ;;
 esac
 
+command="$1"
 log="${CHANCERY_FAKE_LOG:?CHANCERY_FAKE_LOG not set}"
 mkdir -p "$log"
 until mkdir "$log/.axctl-lock" 2>/dev/null; do sleep 0.02; done
@@ -22,10 +27,14 @@ rmdir "$log/.axctl-lock"
 
 prompt=""
 thread=""
+project=""
+worktree=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --prompt-file) prompt="$(cat "$2")"; shift ;;
     --thread) thread="$2"; shift ;;
+    --project) project="$2"; shift ;;
+    --worktree) worktree=1 ;;
   esac
   shift
 done
@@ -38,4 +47,31 @@ if [ -n "$thread" ]; then
   sqlite3 "${CHANCERY_SESSIONS_HOME:?}/.codex/thread_history_1.sqlite" \
     "INSERT INTO thread_turns SELECT '$thread', MAX(rollout_ordinal) + 1, 'inProgress', NULL FROM thread_turns WHERE thread_id = '$thread'"
 fi
+
+home="${CHANCERY_SESSIONS_HOME:?}"
+cwd="$(dirname "$home")/demo-project"
+case "$command" in
+  new-session)
+    [ "$project" = gone ] && { echo "{\"ok\":false,\"error\":\"no 'New session in gone' button in the sidebar; Claude Desktop only lists projects it has opened before\"}"; exit 4; }
+    [ "$project" = plain-folder ] && [ -n "$worktree" ] && { echo '{"ok":false,"error":"no Worktree checkbox in the composer"}'; exit 4; }
+    dir="$home/Library/Application Support/Claude/claude-code-sessions/org/user"
+    mkdir -p "$dir"
+    node -e 'const [id, title, cwd] = process.argv.slice(1); process.stdout.write(JSON.stringify({ sessionId: id, title, cwd, originCwd: cwd, isArchived: false, lastActivityAt: Date.now() }))' \
+      "local_new-$n" "$prompt" "$cwd" > "$dir/local_new-$n.tmp"
+    mv "$dir/local_new-$n.tmp" "$dir/local_new-$n.json"
+    [ -n "$worktree" ] && on=true || on=false
+    echo "{\"ok\":true,\"project\":\"$project\",\"worktree\":$on,\"environment\":\"demo-project\"}"
+    exit 0 ;;
+  codex-new-chat)
+    [ "$project" = gone ] && { echo "{\"ok\":false,\"error\":\"no 'Start new chat in gone' in the Codex sidebar; add the folder as a project in the Codex app first\"}"; exit 4; }
+    id="01a1e2e0-0000-7000-8000-00000000f$(printf '%03d' "$n")"
+    now=$(($(date +%s) * 1000))
+    title="$(printf '%s' "$prompt" | sed "s/'/''/g")"
+    sqlite3 "$home/.codex/state_5.sqlite" \
+      "INSERT INTO threads VALUES ('$id', '$title', NULL, '$cwd', 'vscode', 0, $now, $now, $((now / 1000))); INSERT INTO thread_read_receipts VALUES ('$id', NULL);"
+    sqlite3 "$home/.codex/thread_history_1.sqlite" \
+      "INSERT INTO thread_turns VALUES ('$id', 1, 'inProgress', NULL); INSERT INTO thread_items VALUES ('$id', $now);"
+    echo "{\"ok\":true,\"project\":\"$project\"}"
+    exit 0 ;;
+esac
 echo '{"ok":true}'

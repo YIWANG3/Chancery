@@ -1,6 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { Daemon, Repo, TicketStatus } from "../core/index.js";
-import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, replyToSession, sessionOpenFor, t, type Lang, type Overview, type ReplyTarget, type SessionOpen } from "../core/index.js";
+import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, listStartProjects, replyToSession, sessionOpenFor, startSession, t, type Lang, type Overview, type ReplyTarget, type SessionApp, type SessionOpen, type StartTarget } from "../core/index.js";
 import { run } from "../core/util/run.js";
 import { openSession } from "./openSession.js";
 import type { Settings } from "./settings.js";
@@ -148,6 +148,21 @@ export function registerIpc(deps: IpcDeps): void {
       throw err;
     }
     setTimeout(deps.refreshSessions, 1500);
+  });
+  // A new conversation, started by the app that will own it. The projects are the ones its sidebar offers, by the
+  // names it shows; the first message goes into the fresh composer. The app takes a few seconds to write the
+  // session into its own files, so the list is read again twice.
+  h<{ app: SessionApp }, string[]>("session:startProjects", ({ app }) => listStartProjects(app, { axctlPath: deps.axctlPath, lang: deps.lang() }));
+  h<{ target: StartTarget; prompt: string }, void>("session:start", async ({ target, prompt }) => {
+    const where = `${target.app} "${target.project}"${target.app === "claude" ? (target.worktree ? " +worktree" : " -worktree") : ""}`;
+    deps.log(`new session in ${where} (${prompt.trim().length} chars)`);
+    try {
+      await startSession(target, prompt, { axctlPath: deps.axctlPath, lang: deps.lang() });
+    } catch (err) {
+      deps.log(`new session in ${where} failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
+    for (const ms of [2000, 6000]) setTimeout(deps.refreshSessions, ms);
   });
 }
 

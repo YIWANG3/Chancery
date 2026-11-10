@@ -5,7 +5,7 @@
 //   axctl trusted [--prompt]          {"trusted":bool}
 //   axctl probe                        projects the sidebar offers, composer state, usage
 //   axctl usage                        {"usage":"Weekly · Fable: 45%, …","pct":45}
-//   axctl new-session --project NAME --prompt-file PATH [--worktree] [--wait SECONDS]
+//   axctl new-session --project NAME --prompt-file PATH [--worktree | --no-worktree] [--wait SECONDS]
 //   axctl reply --session local_ID --prompt-file PATH [--wait SECONDS] [--stay]
 //   axctl codex-reply --thread ID --title TITLE --prompt-file PATH [--wait SECONDS]
 //   axctl dump --app claude|codex [--grep TEXT]
@@ -127,7 +127,7 @@ func find(_ nodes: [Node], role: String, title: String? = nil, desc: String? = n
 func waitFor(_ app: AXUIElement, seconds: Double, _ pick: ([Node]) -> Node?) -> Node? {
   let deadline = Date().addingTimeInterval(seconds)
   repeat {
-    if let n = pick(snapshot(app)) { return n }
+    if let n = pick(claudeNodes(app)) { return n }
     Thread.sleep(forTimeInterval: 0.5)
   } while Date() < deadline
   return nil
@@ -231,40 +231,62 @@ case "probe", "usage":
   if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
   let app = claudeApp()
   Thread.sleep(forTimeInterval: 2.0)
-  let nodes = snapshot(app)
+  // A query can find a bare shell of a tree (nothing at all, or a window and a few empty groups) or one that is
+  // still filling in; that has been seen to last twenty seconds. So `probe` reads until the sidebar's projects are
+  // there (with the sidebar collapsed they never are, and the answer is an empty list after the whole wait), and
+  // `usage` until there is a tree to speak of.
+  let newSessionIn = "New session in "
+  func offered(_ nodes: [Node]) -> [String] { nodes.filter { $0.role == "AXButton" && $0.desc.hasPrefix(newSessionIn) }.map { String($0.desc.dropFirst(newSessionIn.count)) } }
+  var nodes = claudeNodes(app)
+  let filled = Date().addingTimeInterval(15)
+  while (command == "probe" ? offered(nodes).isEmpty : nodes.count < 50) && Date() < filled {
+    Thread.sleep(forTimeInterval: 0.5)
+    nodes = claudeNodes(app)
+  }
   let composer = composerState(nodes)
   if command == "usage" {
     let u = composer["usage"] as? String ?? ""
     emit(["ok": !u.isEmpty, "usage": u, "pct": usagePct(u) as Any])
   } else {
-    let projects = nodes.filter { $0.role == "AXButton" && $0.desc.hasPrefix("New session in ") }.map { String($0.desc.dropFirst("New session in ".count)) }
-    emit(["ok": true, "nodes": nodes.count, "projects": projects, "composer": composer])
+    emit(["ok": true, "nodes": nodes.count, "projects": offered(nodes), "composer": composer])
   }
 
 case "new-session":
   if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
-  guard let project = arg("--project"), let promptFile = arg("--prompt-file") else { fail(1, "usage: new-session --project NAME --prompt-file PATH [--worktree] [--wait SECONDS]") }
+  guard let project = arg("--project"), let promptFile = arg("--prompt-file") else { fail(1, "usage: new-session --project NAME --prompt-file PATH [--worktree | --no-worktree] [--wait SECONDS]") }
   guard let prompt = try? String(contentsOfFile: promptFile, encoding: .utf8), !prompt.isEmpty else { fail(1, "prompt file unreadable or empty") }
   let wait = Double(arg("--wait") ?? "8") ?? 8
   let app = claudeApp()
   Thread.sleep(forTimeInterval: 2.0)
 
-  guard let newButton = find(snapshot(app), role: "AXButton", desc: "New session in \(project)") else {
+  // The sidebar may not be in the tree yet (see probe), so the button is looked for over a few seconds.
+  guard let newButton = waitFor(app, seconds: wait, { find($0, role: "AXButton", desc: "New session in \(project)") }) else {
     fail(4, "no 'New session in \(project)' button in the sidebar; Claude Desktop only lists projects it has opened before")
   }
   if !press(newButton) { fail(4, "AXPress on the new-session button failed") }
 
-  guard let promptBox = waitFor(app, seconds: wait, { find($0, role: "AXTextArea", desc: "Prompt") }) else { fail(4, "composer did not appear") }
+  // The conversation that was showing has a composer too, and for a moment after the press it is still the one in
+  // the tree. Only the composer of a new session carries the "Environment: …" control, so that is what is waited
+  // for: a prompt written into whatever conversation was open would be worse than no session.
+  guard let promptBox = waitFor(app, seconds: wait, { nodes in
+    find(nodes, role: "AXPopUpButton", descPrefix: "Environment: ") == nil ? nil : find(nodes, role: "AXTextArea", desc: "Prompt")
+  }) else { fail(4, "the new-session composer did not appear") }
 
+  // The checkbox keeps whatever the last session used, so either flag sets it and neither leaves it alone. A folder
+  // that is not a git repository has no checkbox: nothing to turn off there, and nothing that could be turned on.
   var worktree = false
-  if flags.contains("--worktree") {
-    guard let box = find(snapshot(app), role: "AXCheckBox", title: "Worktree") else { fail(4, "no Worktree checkbox in the composer") }
-    if box.value != "1" {
-      _ = press(box)
-      Thread.sleep(forTimeInterval: 0.6)
+  if flags.contains("--worktree") || flags.contains("--no-worktree") {
+    let want = flags.contains("--worktree")
+    if let box = find(claudeNodes(app), role: "AXCheckBox", title: "Worktree") {
+      if (box.value == "1") != want {
+        _ = press(box)
+        Thread.sleep(forTimeInterval: 0.6)
+      }
+      guard let after = find(claudeNodes(app), role: "AXCheckBox", title: "Worktree"), (after.value == "1") == want else { fail(4, "Worktree checkbox did not turn \(want ? "on" : "off")") }
+    } else if want {
+      fail(4, "no Worktree checkbox in the composer")
     }
-    guard let after = find(snapshot(app), role: "AXCheckBox", title: "Worktree"), after.value == "1" else { fail(4, "Worktree checkbox did not turn on") }
-    worktree = true
+    worktree = want
   }
 
   if AXUIElementSetAttributeValue(promptBox.el, "AXValue" as CFString, prompt as CFString) != .success { fail(4, "could not write the prompt") }

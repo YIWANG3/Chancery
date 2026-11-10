@@ -86,6 +86,8 @@ export function installMock(): void {
   const settings: { theme: string; language: LangPref } = { theme: "system", language: "system" };
   const routes: Record<string, (p: never) => unknown> = {
     "sessions:overview": overview,
+    "session:startProjects": ({ app }: { app: string }) => (app === "claude" ? ["AfterFrame", "Chancery", "notes", "This computer"] : ["Chancery", "media-resource-management", "General"]),
+    "session:start": () => new Promise((resolve) => setTimeout(resolve, 600)),
     "notices:list": () => [
       { id: 2, title: "等你 · 导入时 HEIC 缩略图偶尔是黑的", subtitle: "Claude · AfterFrame", body: "要退回到 ImageIO 解码，还是只对 10-bit 走慢路径？" },
       { id: 1, title: "跑完了 · 调研 HEIC 解码的几种路径", subtitle: "Codex · AfterFrame", body: "这一轮结束了。" },

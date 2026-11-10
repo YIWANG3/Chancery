@@ -45,6 +45,9 @@ export function Status({ status, className }: { status: TicketStatus; className?
 }
 
 /** Sizes follow the desktop apps this sits beside: 36px controls, 32px for compact ones. */
+/** The id of the element in the window's title row that a page renders its main action into, through a portal. */
+export const PAGE_ACTIONS = "page-actions";
+
 export function Button({ children, onClick, kind = "default", size = "md", disabled, title, className = "", ariaLabel }: { children: ReactNode; onClick?: () => void; kind?: "default" | "primary" | "ghost" | "danger"; size?: "sm" | "md"; disabled?: boolean; title?: string; className?: string; ariaLabel?: string }) {
   const tone = {
     default: "bg-panel2 hover:bg-hover text-text",

@@ -47,13 +47,17 @@ export function explainReplyError(app: SessionApp, raw: string, lang: Lang = "zh
   return t(lang, "reply.notSent", { raw });
 }
 
-interface AxctlResult {
+export interface AxctlResult {
   ok: boolean;
   error?: string;
+  /** probe / codex-probe: the projects the app's sidebar offers a new conversation in, by the names it shows. */
+  projects?: string[];
+  /** new-session: the folder Claude Desktop's composer said the session starts in. */
+  environment?: string;
 }
 
 /** Runs axctl and reads its one JSON line whatever the exit code: a refusal is a normal answer, not a crash. */
-function axctl(path: string, args: string[]): Promise<AxctlResult> {
+export function axctl(path: string, args: string[]): Promise<AxctlResult> {
   return new Promise((resolve) => {
     execFile(path, args, { timeout: 90_000 }, (err, stdout) => {
       const line = stdout.trim().split("\n").pop() ?? "";
@@ -71,14 +75,17 @@ async function codexNewestTurn(home: string, threadId: string): Promise<number> 
   return rows[0]?.ordinal ?? -1;
 }
 
-// One reply at a time: each one steers the same two windows.
+// One send at a time, a reply or the first message of a new conversation: each one steers the same two windows.
 let queue: Promise<unknown> = Promise.resolve();
+export function inTurn<T>(job: () => Promise<T>): Promise<T> {
+  const run = queue.then(job);
+  queue = run.catch(() => {});
+  return run;
+}
 
 /** Resolves once the message is in the conversation; rejects with a message for the person otherwise. */
 export function replyToSession(target: ReplyTarget, text: string, opts: ReplyOptions): Promise<void> {
-  const job = queue.then(() => send(target, text, opts));
-  queue = job.catch(() => {});
-  return job;
+  return inTurn(() => send(target, text, opts));
 }
 
 async function send(target: ReplyTarget, text: string, opts: ReplyOptions): Promise<void> {

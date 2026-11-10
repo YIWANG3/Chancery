@@ -6,7 +6,7 @@ Agent 开发平台的桌面 app：Postgres 存所有项目的工单、派发和�
 
 ## 会话总览（v6）
 
-app 的第一页是「会话」：把 Claude 桌面端和 Codex 应用里的会话读进一个平铺的集合，每个会话一个状态：等我、出错、卡住、运行中、等子会话、待审、完成未读、已中断、超时结束、已完成。列表按这个顺序排，同一状态内新的在前。只读两家自己的本地状态，不写任何东西。
+app 的第一页是「会话」：把 Claude 桌面端和 Codex 应用里的会话读进一个平铺的集合，每个会话一个状态：等我、出错、卡住、运行中、等子会话、待审、完成未读、已中断、超时结束、已完成。列表按这个顺序排，同一状态内新的在前。只读两家自己的本地状态，不写任何东西；回复和新建会话是让那一家的应用自己去做（见下面两节）。
 
 - 项目不是一层目录，而是每个会话上的一个标签（两家的会话按 git 仓库归并，worktree 归到主仓库）。目录已经不存在的会话（测试跑过的临时目录、删掉的文件夹）默认不列，命令行加 `--all` 才列出来，归在「其他」。有活进程的 Claude 会话按进程启动时间算活动时间，所以几天前开的会话今天重新打开后也在今天的窗口里。点标签只看那个项目，再点一次看全部；工具栏里也有项目菜单。
 - 两种看法可以切换，选择会记住：列表（等我的排最前，可按状态筛选）和看板（等我 / 待看 / 运行中 / 已结束 四列，每个会话一张卡片）。行和卡片上都能回复和跳转。
@@ -49,6 +49,14 @@ bin/chancery sessions --json
 - Claude 桌面端发完会切回它原来显示的那条会话；Codex 应用会停在被回复的那条线程上。
 - 需要辅助功能授权（设置页能请求），两家的应用要开着。运行中的会话不提供回复。
 
+新建会话：
+
+- 会话页标题行右边的「新建会话」在筛选栏下面展开一个表单：选 Claude 还是 Codex、选项目、写第一句话，回车。和回复一样，会话不是 Chancery 开的：`axctl` 在后台按那一家侧栏里的「New session in <项目>」/「Start new chat in <项目>」，往新会话的输入框写字，按发送。会话由那一家的应用创建和运行，过几秒从它自己的文件里读进列表。代码在 `core/sessionStart.ts`、`renderer/NewSession.tsx`。
+- 项目菜单是每次打开表单时从那一家的侧栏里现读的（`axctl probe` / `codex-probe`），用的是侧栏上的名字：它既不是目录名也不是仓库名（本仓库的目录叫 `chancery-claude`，两家侧栏里都叫 Chancery）。所以只有那一家侧栏里有的项目才能选；应用没开、没有辅助功能授权、侧栏收起来了，在选项目这一步就会说明。页面正筛着的项目、上次用过的项目在侧栏里有同名的就预选上，否则不预选，不选不能发。
+- Claude 的 Worktree 开关在表单上，默认开，记住上次的选择；每次都明确地开或关（桌面端的开关自己会记住上一次的状态）。不是 git 仓库的目录没有这个开关，开着发会被拒。Codex 应用没有这个开关，会话直接在项目目录里跑。
+- 写字之前要认准是新会话的输入框：按下侧栏按钮后的一瞬间，树里还是原来那条会话的输入框，只有新会话的输入框旁边有「Environment: …」控件，等到它出现才写。等不到就不发。
+- 没有做的：新会话输入框里如果留着你在那一家应用里没发出去的草稿，会被第一句话覆盖。真的 Claude 桌面端和 Codex 应用上这条路还没有从这个表单点过一次（守护进程的 desktop 模式走的是同两条 `axctl` 命令），端到端测试里用的是替身。
+
 工单页已从导航里拿掉，路由 `#/tickets` 还能进（端到端测试用 `CHANCERY_ROUTE=/tickets` 从它启动）。
 
 ## 跑起来
@@ -59,7 +67,10 @@ npm run dev        # vite + esbuild watch + electron
 npm run build      # out/main.cjs、out/preload.cjs、out/cli.cjs、out/renderer/
 npm run check      # typecheck + vitest + build
 npm run test:e2e   # Playwright 起真的 Electron app 跑一遍闭环（先 build）
+npm run dist       # 打成 dist/mac-arm64/Chancery.app（electron-builder，Developer ID 签名、不公证、不用 asar），拷到 /Applications 即可
 ```
+
+打包出来的 app 叫 Chancery，数据目录仍是 `~/Library/Application Support/chancery-claude`，和 `npm run dev` 共用（含单实例锁，所以两者不会同时跑）。签名用钥匙串里的 Developer ID，没有的话 electron-builder 会临时签名，macOS 就不给通知和稳定的辅助功能授权。还没有图标，Dock 上是 Electron 默认的。
 
 ## 测试
 
@@ -94,7 +105,7 @@ cli/         bin/chancery：register / projects / ticket / tickets / show / stat
 axctl trusted [--prompt]   是否已授权，--prompt 弹系统请求
 axctl probe                侧栏有哪些项目、composer 状态、用量
 axctl usage                桌面端显示的订阅用量
-axctl new-session --project NAME --prompt-file PATH [--worktree]
+axctl new-session --project NAME --prompt-file PATH [--worktree | --no-worktree]   两个都不给就不动 Worktree 开关
 axctl codex-probe             Codex app 侧栏的项目、composer 状态
 axctl codex-new-chat --project FOLDER --prompt-file PATH
 axctl reply --session local_ID --prompt-file PATH [--stay]              往 Claude 桌面端的一条会话里发一句
@@ -103,7 +114,7 @@ axctl codex-clear --text-file PATH    Codex 输入框里留着这段字时清掉
 axctl dump --app claude|codex [--grep TEXT]    打印辅助功能树，找选择器用
 ```
 
-选择器是写死的（AXDescription "Prompt" / "Send"、AXCheckBox "Worktree"、AXButton "New session in …"），Desktop 升级后用 `probe` 核对；以后可以在选择器失手时把 `probe` 的树交给一个判定模型兜底。
+选择器是写死的（AXDescription "Prompt" / "Send"、AXCheckBox "Worktree"、AXButton "New session in …"、AXPopUpButton "Environment: …"），Desktop 升级后用 `probe` 核对；以后可以在选择器失手时把 `probe` 的树交给一个判定模型兜底。
 
 ## Codex worker 的两种启动方式
 

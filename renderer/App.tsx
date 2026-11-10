@@ -14,6 +14,7 @@ import { useChanged } from "./hooks";
 import { api } from "./api";
 import { cn } from "./cn";
 import { useT } from "./i18n";
+import { PAGE_ACTIONS } from "./ui";
 
 const HOME = "/sessions";
 
@@ -70,8 +71,11 @@ export function App() {
       <main className="flex-1 min-w-0 flex flex-col my-2 mr-2 rounded-lg border border-line bg-panel overflow-hidden">
         <div className="drag h-[52px] shrink-0 flex items-center pl-8 pr-4">
           <span className="text-[16px] font-medium">{titleKey ? t(titleKey) : ""}</span>
+          {/* Where a page puts its one main action (the session page: start a new session), so it costs the page's
+              filter bar no width. */}
+          <div id={PAGE_ACTIONS} className="ml-auto flex items-center gap-2" />
           {/* The window's own control, so it sits in the window's corner on every page, apart from any page's filters. */}
-          <button type="button" aria-label={t("app.minimizeToFloat")} title={t("app.minimizeToFloatHint")} onClick={() => void api.float.show()} className="no-drag ml-auto size-8 inline-flex items-center justify-center rounded-md text-muted hover:text-text hover:bg-panel2">
+          <button type="button" aria-label={t("app.minimizeToFloat")} title={t("app.minimizeToFloatHint")} onClick={() => void api.float.show()} className="no-drag ml-2 size-8 inline-flex items-center justify-center rounded-md text-muted hover:text-text hover:bg-panel2">
             <Minimize2 size={15} />
           </button>
         </div>
