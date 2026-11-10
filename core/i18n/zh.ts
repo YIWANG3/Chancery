@@ -124,6 +124,8 @@ export const zh = {
   // Agent 页
   "agents.active": "Claude 活动会话",
   "agents.none": "没有活动的 Claude 会话。",
+  "agents.codexActive": "Codex 活动线程",
+  "agents.codexNone": "没有活动的 Codex 线程。",
 
   // 项目页
   "projects.count": "{n} 个项目",

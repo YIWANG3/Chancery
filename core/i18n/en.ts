@@ -126,6 +126,8 @@ export const en: Record<keyof typeof zh, Msg> = {
   // Agents page
   "agents.active": "Active Claude sessions",
   "agents.none": "No active Claude sessions.",
+  "agents.codexActive": "Active Codex threads",
+  "agents.codexNone": "No active Codex threads.",
 
   // Projects page
   "projects.count": { one: "{n} project", other: "{n} projects" },
