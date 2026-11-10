@@ -72,14 +72,14 @@
   so muted text moves toward the text color and the fills get a little stronger.
 */
 :root.glass {
-  --glass-veil: 255 255 255 / 0.45;
+  --glass-veil: 255 255 255 / 0.6;
   --muted-text: 70 70 70;
   --fill-1: 0.07;
   --fill-2: 0.12;
 }
 @media (prefers-color-scheme: dark) {
   :root.glass {
-    --glass-veil: 0 0 0 / 0.35;
+    --glass-veil: 0 0 0 / 0.5;
     --text-color: 245 245 245;
     --muted-text: 200 200 200;
     --fill-1: 0.1;

@@ -41,7 +41,7 @@ bin/chancery sessions --json
 - 主窗口的最小化形态：一个总在最前面、所有桌面都可见的小窗（`main/floatWindow.ts`、`renderer/pages/Float.tsx`），列出在等你、待看、在跑的会话，最多 5 条或 10 条，已结束的不占位置。收起后只剩一行计数。每行能跳转、能回复；点标题跳转。主窗口和浮窗二选一：最小化时主窗口隐藏，浮窗上的「回到主窗口」（或 Esc、Dock 图标、菜单栏的「打开」）把主窗口叫回来并关掉浮窗。
 - 第一次出现在屏幕右上角，离边缘 16px；按住顶部一行可以拖到任意位置，位置记住。变大之后会超出屏幕的话自动拉回来（`core/util/rect.ts`）。
 - 入口：窗口右上角标题行里的最小化按钮（每个页面都有）、菜单栏图标的菜单；设置里可选「启动时最小化到浮窗」。出现和变大小时不抢焦点，点进去打字时才拿焦点。
-- macOS 26 上浮窗和提醒浮窗是液态玻璃：窗口透明，底下垫一层系统的 `NSGlassEffectView`（clear 样式，比 regular 和 Electron 自带的 `vibrancy` 都透），页面自己不画底色，只盖一层薄纱保证字看得清（深色 35% 黑、浅色 45% 白，`renderer/styles.css` 里的 `--glass-veil`，要更透就调它）。玻璃是 `native/glass` 这个小插件垫进去的（`main/glass.ts`），只用公开 API。macOS 26 以前没有这个视图，窗口照旧是实底；`CHANCERY_GLASS=0` 可以在 26 上也关掉。
+- macOS 26 上浮窗和提醒浮窗是液态玻璃：窗口透明，底下垫一层系统的 `NSGlassEffectView`（clear 样式，比 regular 和 Electron 自带的 `vibrancy` 都透），页面自己不画底色，只盖一层薄纱保证字看得清（深色 50% 黑、浅色 60% 白，`renderer/styles.css` 里的 `--glass-veil`，要更透就调它）。玻璃是 `native/glass` 这个小插件垫进去的（`main/glass.ts`），只用公开 API。macOS 26 以前没有这个视图，窗口照旧是实底；`CHANCERY_GLASS=0` 可以在 26 上也关掉。
 
 快速回复：
 
