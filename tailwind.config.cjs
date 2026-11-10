@@ -28,7 +28,7 @@ module.exports = {
       },
       borderRadius: { sm: "4px", DEFAULT: "6px", md: "8px", lg: "12px", xl: "16px" },
       // One fixed scale; no arbitrary z-* in components.
-      zIndex: { drawer: "30", modal: "40" },
+      zIndex: { menu: "20", drawer: "30", modal: "40" },
     },
   },
   // `glass:` applies in a window standing on Liquid Glass (the `glass` class on <html>, see renderer/styles.css).

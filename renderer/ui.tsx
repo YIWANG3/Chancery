@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { MessageSquare, SquareTerminal } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Check, ChevronDown, MessageSquare, SquareTerminal } from "lucide-react";
 import type { TicketStatus } from "@core/types";
 import type { MsgKey } from "@core/i18n";
 import { api, type SessionOpen } from "./api";
@@ -136,6 +136,116 @@ export function Select<T extends string>({ value, options, onChange, ariaLabel, 
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * A quiet dropdown for the row of choices under a composer: the trigger is the chosen label and a chevron with no
+ * box of its own, and the list opens under it. A filled field per choice there would be louder than what is being
+ * written. Arrow keys move, Return picks, Escape closes; the trigger is named by `ariaLabel`, so what it shows is
+ * its text, not its name.
+ */
+export function Menu<T extends string>({ value, options, onChange, ariaLabel, placeholder, icon, className }: { value: T; options: Array<{ value: T; label: string }>; onChange: (v: T) => void; ariaLabel: string; /** Shown when `value` is none of the options. */ placeholder?: string; icon?: ReactNode; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const id = useId();
+  const current = options.find((o) => o.value === value);
+  useEffect(() => {
+    if (open) list.current?.focus();
+  }, [open]);
+  useEffect(() => {
+    if (open) document.getElementById(`${id}-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [open, active, id]);
+  const show = () => {
+    setActive(Math.max(0, options.findIndex((o) => o.value === value)));
+    setOpen(true);
+  };
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  const pick = (v: T) => {
+    // Back to the trigger first, so a caller that moves the focus on from its onChange has the last word.
+    close();
+    onChange(v);
+  };
+  return (
+    <div
+      className={cn("relative inline-flex min-w-0", className)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+      }}
+    >
+      <button
+        ref={trigger}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        disabled={!options.length}
+        onClick={() => (open ? setOpen(false) : show())}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            show();
+          } else if (e.key === "Escape" && open) {
+            // The focus is back here after a click on the trigger while the list is open.
+            e.stopPropagation();
+            setOpen(false);
+          }
+        }}
+        className={cn("no-drag inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[13px] transition-colors hover:bg-panel2 hover:text-text disabled:pointer-events-none disabled:opacity-60", open ? "bg-panel2 text-text" : "text-muted")}
+      >
+        {icon}
+        <span className="truncate">{current?.label ?? placeholder}</span>
+        <ChevronDown size={13} className="shrink-0 opacity-70" />
+      </button>
+      {open && (
+        <div
+          ref={list}
+          role="listbox"
+          tabIndex={-1}
+          aria-label={ariaLabel}
+          aria-activedescendant={`${id}-${active}`}
+          onKeyDown={(e) => {
+            const last = options.length - 1;
+            const to = { ArrowDown: Math.min(last, active + 1), ArrowUp: Math.max(0, active - 1), Home: 0, End: last }[e.key];
+            if (to !== undefined) {
+              e.preventDefault();
+              setActive(to);
+            } else if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              const o = options[active];
+              if (o) pick(o.value);
+            } else if (e.key === "Escape") {
+              // Only the list closes; whatever the list sits in (a form that Escape also closes) stays.
+              e.stopPropagation();
+              close();
+            } else if (e.key === "Tab") {
+              setOpen(false);
+            }
+          }}
+          className="no-drag absolute left-0 top-full z-menu mt-1 flex max-h-[320px] min-w-[200px] max-w-[340px] flex-col gap-px overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-xl outline-none"
+        >
+          {options.map((o, i) => (
+            <div
+              key={o.value}
+              id={`${id}-${i}`}
+              role="option"
+              aria-selected={o.value === value}
+              onMouseMove={() => setActive(i)}
+              onClick={() => pick(o.value)}
+              className={cn("flex h-8 shrink-0 cursor-pointer items-center gap-3 rounded-md px-2 text-[13px] text-text", i === active && "bg-panel2")}
+            >
+              <span className="min-w-0 flex-1 truncate">{o.label}</span>
+              {o.value === value && <Check size={14} className="shrink-0 text-muted" />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

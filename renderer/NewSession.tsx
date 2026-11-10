@@ -1,13 +1,13 @@
 // The form a new session is started from on the session page: which app, which project, and the first message. The
 // app itself starts the session (core/sessionStart.ts); nothing is created here.
 import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { ArrowUp, Bot, Folder, LoaderCircle, X } from "lucide-react";
 import type { SessionApp } from "@core/overview";
 import type { StartProjects } from "@core/sessionStart";
 import { api } from "./api";
 import { useT } from "./i18n";
 import { APP_LABEL } from "./sessionBits";
-import { Button, Segmented, Select, Switch } from "./ui";
+import { Button, Menu } from "./ui";
 
 interface Remembered {
   app: SessionApp;
@@ -99,36 +99,11 @@ export function NewSession({ app: preferred, like, onStarted, onClose }: { app?:
   };
 
   return (
-    <section aria-label={t("sessions.new")} className="shrink-0 mx-8 mb-4 rounded-md bg-panel2 p-3 flex flex-col gap-2.5">
+    <section aria-label={t("sessions.new")} className="shrink-0 mx-8 mb-4 flex flex-col gap-1.5">
       <fieldset disabled={busy} className="contents">
-        <div className="flex flex-wrap items-center gap-3">
-          <Segmented
-            className="bg-panel"
-            value={app}
-            onChange={setApp}
-            options={[
-              { value: "claude" as const, label: APP_LABEL.claude },
-              { value: "codex" as const, label: APP_LABEL.codex },
-            ]}
-          />
-          <Select
-            ariaLabel={t("start.project")}
-            className="!w-auto max-w-[260px]"
-            value={picked}
-            onChange={setPicked}
-            options={[{ value: "", label: list ? t("start.pickProject") : t("start.loadingProjects") }, ...(list?.projects ?? []).map((p) => ({ value: p.key, label: p.name }))]}
-          />
-          {app === "claude" && (
-            <label className="inline-flex items-center gap-2 text-[13px] text-muted" title={t("start.worktreeHint")}>
-              <Switch checked={worktree} onChange={setWorktree} ariaLabel={t("start.worktree")} />
-              {t("start.worktree")}
-            </label>
-          )}
-          <button type="button" aria-label={t("common.close")} title={t("common.close")} onClick={onClose} className="no-drag ml-auto size-7 inline-flex items-center justify-center rounded text-muted hover:text-text hover:bg-hover">
-            <X size={15} />
-          </button>
-        </div>
-        <div className="flex items-end gap-2">
+        {/* One fill holds the words and the send button, with no box around the text itself; a click anywhere on
+            it lands in the text. */}
+        <div className="flex cursor-text items-end gap-2 rounded-xl bg-panel2 py-2.5 pl-4 pr-2.5" onClick={() => box.current?.focus()}>
           <textarea
             ref={box}
             aria-label={t("start.promptLabel")}
@@ -146,15 +121,58 @@ export function NewSession({ app: preferred, like, onStarted, onClose }: { app?:
                 onClose();
               }
             }}
-            className="no-drag flex-1 min-w-0 resize-none rounded-md border border-line bg-panel px-3 py-1.5 text-[14px] leading-6 text-text placeholder:text-muted focus:outline-none focus:border-accent disabled:opacity-60"
+            className="no-drag min-h-0 min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent p-0 py-0.5 text-[14px] leading-6 text-text placeholder:text-muted hover:bg-transparent focus:outline-none focus-visible:outline-none disabled:opacity-60"
           />
-          <Button kind="primary" size="sm" onClick={() => void send()} disabled={!ready}>
-            {busy ? t("common.sending") : t("start.send")}
-          </Button>
+          <button
+            type="button"
+            aria-label={busy ? t("common.sending") : t("start.send")}
+            title={busy ? t("common.sending") : t("start.send")}
+            onClick={() => void send()}
+            disabled={!ready}
+            className="no-drag inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-inverse text-inverse-text transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-30"
+          >
+            {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.25} />}
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-1 pl-2">
+          <Menu
+            ariaLabel={t("start.app")}
+            icon={<Bot size={14} className="shrink-0" />}
+            value={app}
+            onChange={(v) => {
+              setApp(v);
+              box.current?.focus();
+            }}
+            options={[
+              { value: "claude" as const, label: APP_LABEL.claude },
+              { value: "codex" as const, label: APP_LABEL.codex },
+            ]}
+          />
+          <Menu
+            ariaLabel={t("start.project")}
+            icon={<Folder size={14} className="shrink-0" />}
+            className="max-w-[280px]"
+            value={picked}
+            placeholder={list ? t("start.pickProject") : t("start.loadingProjects")}
+            onChange={(v) => {
+              setPicked(v);
+              box.current?.focus();
+            }}
+            options={(list?.projects ?? []).map((p) => ({ value: p.key, label: p.name }))}
+          />
+          {app === "claude" && (
+            <label className="no-drag inline-flex h-7 items-center gap-2 rounded-md px-2 text-[13px] text-muted transition-colors hover:text-text" title={t("start.worktreeHint")}>
+              <input type="checkbox" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} />
+              {t("start.worktree")}
+            </label>
+          )}
+          <button type="button" aria-label={t("common.close")} title={t("common.close")} onClick={onClose} className="no-drag ml-auto inline-flex size-7 items-center justify-center rounded-md text-muted hover:bg-panel2 hover:text-text">
+            <X size={15} />
+          </button>
         </div>
       </fieldset>
       {list?.problem && (
-        <div role="note" aria-label={t("start.problem")} className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] leading-5 text-warn text-pretty">
+        <div role="note" aria-label={t("start.problem")} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 text-[13px] leading-5 text-warn text-pretty">
           <span className="min-w-0 flex-1 basis-[320px]">{list.problem.text}</span>
           {list.problem.kind === "no-ax" ? (
             <Button size="sm" onClick={() => void api.ax.grant()}>
@@ -170,7 +188,7 @@ export function NewSession({ app: preferred, like, onStarted, onClose }: { app?:
         </div>
       )}
       {error && (
-        <span role="alert" className="text-[13px] text-error">
+        <span role="alert" className="px-4 text-[13px] text-error">
           {error}
         </span>
       )}

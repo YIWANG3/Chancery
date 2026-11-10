@@ -97,6 +97,7 @@ export const zh = {
   "sessions.count": "{n} 个会话",
   "sessions.new": "新建会话",
   "sessions.newHint": "在 Claude 或 Codex 里开一个新会话，由它自己的应用发出去",
+  "start.app": "新会话用的应用",
   "start.project": "新会话的项目",
   "start.pickProject": "选一个项目",
   "start.loadingProjects": "在读项目…",

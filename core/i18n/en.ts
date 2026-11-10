@@ -99,6 +99,7 @@ export const en: Record<keyof typeof zh, Msg> = {
   "sessions.count": { one: "{n} session", other: "{n} sessions" },
   "sessions.new": "New session",
   "sessions.newHint": "Start a new session in Claude or Codex; its own app sends it",
+  "start.app": "App for the new session",
   "start.project": "Project for the new session",
   "start.pickProject": "Pick a project",
   "start.loadingProjects": "Reading projects…",
