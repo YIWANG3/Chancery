@@ -88,6 +88,21 @@ export function installMock(): void {
   const settings: { theme: string; language: LangPref } = { theme: "system", language: "system" };
   const routes: Record<string, (p: never) => unknown> = {
     "sessions:overview": overview,
+    // A few sessions have something said in them, so the search box has more than titles to find.
+    "sessions:search": ({ query }: { query: string }) => {
+      const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+      const said: Record<string, { where: "prompt" | "reply" | "file"; turn: number | null; text: string }> = {
+        local_1: { where: "prompt", turn: 3, text: "先别动 ImageIO，看看 sips 对 10-bit HEIC 返回空缓冲是不是必现" },
+        t2: { where: "reply", turn: 2, text: "三种路径：sips、ImageIO、libheif。建议默认 ImageIO，只对 10-bit 走慢路径" },
+        local_5: { where: "file", turn: null, text: "/Users/me/workspace/chancery-claude/main/index.ts" },
+      };
+      return overview().sessions.flatMap((x) => {
+        const inside = said[x.id];
+        const places = [{ where: "title", turn: null, text: x.title }, { where: "detail", turn: null, text: x.detail }, ...(inside ? [inside] : [])];
+        const matches = words.map((w) => places.find((p) => p.text.toLowerCase().includes(w)));
+        return matches.length && matches.every(Boolean) ? [{ key: `${x.app}:${x.id}`, score: 1, matches: matches.map((m) => ({ where: m!.where, turn: m!.turn, snippet: m!.text })) }] : [];
+      });
+    },
     // `localStorage["mock.noax"] = "1"` shows the form as it is before the Accessibility permission is granted.
     "session:startProjects": ({ app }: { app: string }) => {
       const known = [
@@ -111,7 +126,7 @@ export function installMock(): void {
     "daemon:status": () => ({ running: true, paused: false, lastTickAt: now, lastError: null }),
     "agents:claude": () => [{ pid: 1, cwd: "/Users/me/workspace/AfterFrame", kind: "desktop", startedAt: 0, sessionId: "s1", name: "heic 缩略图", status: "busy" }],
     "ax:status": () => (localStorage.getItem("mock.noax") === "1" ? { available: true, trusted: false, askedOf: "Chancery" } : { available: true, trusted: true, probe: { ok: true, projects: ["AfterFrame"], composer: { usage: "Weekly 45%" } } }),
-    "settings:get": () => ({ ...settings, lang: resolveLang(settings.language, navigator.languages), pgPort: 54329, pgConnectionString: "", worktreeRoot: "~/.platform/worktrees", claudeBin: "claude", permissionMode: "auto", claudeLaunchMode: "desktop", defaultModel: "", codexBin: "codex", codexModel: "", codexSandbox: "workspace-write", codexLaunchMode: "exec", quickCaptureShortcut: "CommandOrControl+Shift+Space", daemonIntervalMs: 30000, mcpPort: 41710, clerkBackend: "auto", deepseekApiKey: "", deepseekModel: "deepseek-chat", autoTriage: true, auditEnabled: true, workerLowPriority: true, launchAtLogin: false, sessionAlerts: true, floatOnStart: false, floatPosition: null, notchRest: "counts", notchCorners: "round", notchOpen: "hover", notchDisplay: "active", floatOpacity: 50, floatPlace: "corner", floatPlaces: ["corner", "top"], floatStyle: "glass", floatStyles: ["glass", "clear", "solid"], pg: { embedded: true, connectionString: "postgres://chancery@127.0.0.1:54329/chancery" } }),
+    "settings:get": () => ({ ...settings, lang: resolveLang(settings.language, navigator.languages), pgPort: 54329, pgConnectionString: "", worktreeRoot: "~/.platform/worktrees", claudeBin: "claude", permissionMode: "auto", claudeLaunchMode: "desktop", defaultModel: "", codexBin: "codex", codexModel: "", codexSandbox: "workspace-write", codexLaunchMode: "exec", quickCaptureShortcut: "CommandOrControl+Shift+Space", daemonIntervalMs: 30000, mcpPort: 41710, clerkBackend: "auto", deepseekApiKey: "", deepseekModel: "deepseek-chat", autoTriage: false, auditEnabled: true, workerLowPriority: true, launchAtLogin: false, sessionAlerts: true, floatOnStart: false, floatPosition: null, notchRest: "counts", notchCorners: "round", notchOpen: "hover", notchDisplay: "active", floatOpacity: 50, floatPlace: "corner", floatPlaces: ["corner", "top"], floatStyle: "glass", floatStyles: ["glass", "clear", "solid"], pg: { embedded: true, connectionString: "postgres://chancery@127.0.0.1:54329/chancery" } }),
   };
   window.chancery = {
     invoke: async (channel, payload) => {

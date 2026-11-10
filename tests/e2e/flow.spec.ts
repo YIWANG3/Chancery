@@ -1,7 +1,10 @@
 // The Phase 0 loop against fake CLIs: register a project, file a ticket, dispatch it, the worker asks, the human
 // answers, the next worker gets the answer and finishes. No tokens, deterministic, runs in CI.
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { request } from "node:http";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CODEX_THREAD, expect, REAL, test, writeClaudeCliTranscript, writeClaudeSession, writeCodexThread, writeCursorComposer } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
@@ -174,12 +177,15 @@ test("PR 开了之后审计：第一轮没过回炉，第二轮通过进待合�
   await drawer.getByRole("button", { name: "关闭" }).click();
 });
 
-test("设置页：会话用得到的在前面，工单流水线的设置折在一行后面，展开才有数据库和 MCP 地址", async ({ win, env }) => {
+test("设置页：会话用得到的在前面，接管理会话的 MCP 地址也在；工单流水线的设置折在一行后面，展开才有数据库", async ({ win, env }) => {
   await win.getByRole("button", { name: "设置", exact: true }).click();
   // What watching sessions needs is on the page as it opens: the look, the alerts, the permission replying needs.
-  await expect(win.getByRole("heading", { name: "会话" })).toBeVisible();
+  await expect(win.getByRole("heading", { name: "会话", exact: true })).toBeVisible();
   await expect(win.getByText("辅助功能授权")).toBeVisible();
   await expect(win.getByRole("switch", { name: "登录时启动" })).toBeVisible();
+  // So is how to connect a steward session: it is a session feature, and needs no database.
+  await expect(win.getByRole("heading", { name: "管理会话" })).toBeVisible();
+  await expect(win.getByText(`127.0.0.1:${env.mcpPort}/mcp`).first()).toBeVisible();
   // The pipeline's settings are not, until asked for.
   const pipeline = win.getByRole("button", { name: /^工单流水线/ });
   await expect(pipeline).toHaveAttribute("aria-expanded", "false");
@@ -187,7 +193,6 @@ test("设置页：会话用得到的在前面，工单流水线的设置折在�
   await expect(win.getByRole("heading", { name: "工单整理" })).toHaveCount(0);
   await pipeline.click();
   await expect(win.getByText(/内置的 Postgres/)).toBeVisible();
-  await expect(win.getByText(`127.0.0.1:${env.mcpPort}/mcp`).first()).toBeVisible();
   await expect(win.getByRole("heading", { name: "工单整理" })).toBeVisible();
   await pipeline.click();
   await expect(win.getByText(/内置的 Postgres/)).toHaveCount(0);
@@ -641,4 +646,76 @@ test("终端里起的 Claude Code 会话也在列：标题是第一句话，跑�
   // No process has it any more, so it is taken up again with the CLI's own resume, in its directory.
   await row.getByRole("button", { name: "在终端里续聊：claude --resume" }).click();
   await expect.poll(() => readFileSync(join(env.userData, "logs", "chancery.log"), "utf8")).toContain(`open terminal claude ${id}`);
+});
+
+test("搜索：按对话里说过的话找到会话，命中的那一句显示在它下面", async ({ win, env }) => {
+  // A session whose conversation says something neither its title nor its status line does. The transcript sits
+  // where the CLI would file it: under the session's directory, named after the CLI session.
+  const dir = join(env.sessionsHome, ".claude", "projects", env.projectDir.replace(/[^a-zA-Z0-9]/g, "-"));
+  mkdirSync(dir, { recursive: true });
+  const line = (type: "user" | "assistant", text: string) => `${JSON.stringify({ parentUuid: null, isSidechain: false, type, message: { role: type, content: type === "user" ? text : [{ type: "text", text }] } })}\n`;
+  writeFileSync(join(dir, "cli-search.jsonl"), line("user", "把导出的默认格式改成 AVIF") + line("assistant", "默认格式已经改成 AVIF，旧设置会保留。"));
+  writeClaudeSession(env, "local_search-1", { title: "导出设置整理", cliSessionId: "cli-search", lastAssistantUuid: "s1", postTurnSummaryFor: "s1", postTurnSummary: { status_category: "completed", status_detail: "改完了" } });
+
+  await win.getByRole("button", { name: /^会话/ }).click();
+  await win.getByRole("radio", { name: "列表" }).click();
+  await expect(win.getByText("导出设置整理")).toBeVisible();
+  const search = win.getByRole("textbox", { name: "搜索会话" });
+  await search.fill("avif 默认格式");
+  const hit = win.getByRole("listitem").filter({ hasText: "导出设置整理" });
+  await expect(win.getByRole("listitem")).toHaveCount(1);
+  await expect(hit).toContainText("你说");
+  await expect(hit).toContainText("把导出的默认格式改成 AVIF");
+  // A search looks through everything that was read, so the time range has nothing to say meanwhile.
+  await expect(win.getByRole("combobox", { name: "时间范围" })).toHaveCount(0);
+
+  await search.fill("没有人说过的话");
+  await expect(win.getByText("最近 14 天的会话里没有找到「没有人说过的话」")).toBeVisible();
+  await search.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(win.getByText("端到端会话")).toBeVisible();
+  await expect(win.getByRole("combobox", { name: "时间范围" })).toBeVisible();
+});
+
+test("管理会话：接上 MCP 的会话能搜到、读到别的会话；回复由那一家的应用发出去", async ({ env }) => {
+  const client = new Client({ name: "e2e-steward", version: "0" });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${env.mcpPort}/mcp`)));
+  const call = async (name: string, args: Record<string, unknown> = {}) => ((await client.callTool({ name, arguments: args })) as { content: Array<{ text: string }> }).content[0]!.text;
+
+  // The session tools are all there is: the ticket pipeline's tools are shelved with it.
+  expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual(["list_sessions", "open_session", "read_session", "reply_to_session", "search_sessions", "start_session"]);
+
+  const listed = JSON.parse(await call("list_sessions", { project: "demo-project" })) as { sessions: Array<{ id: string; title: string }> };
+  expect(listed.sessions.map((s) => s.title)).toEqual(expect.arrayContaining(["端到端会话", "端到端线程", "导出设置整理"]));
+
+  const found = JSON.parse(await call("search_sessions", { query: "旧设置 AVIF" })) as { hits: Array<Record<string, unknown>> };
+  expect(found.hits).toHaveLength(1);
+  expect(found.hits[0]).toMatchObject({ id: "claude:local_search-1", title: "导出设置整理", app: "claude", project: "demo-project", state: "done", matches: [{ where: "prompt", turn: 1 }, { where: "reply", turn: 1 }] });
+
+  const read = JSON.parse(await call("read_session", { id: "claude:local_search-1" })) as { total_turns: number; turns: unknown[] };
+  expect(read.total_turns).toBe(1);
+  expect(read.turns).toEqual([{ turn: 1, user: "把导出的默认格式改成 AVIF", reply: "默认格式已经改成 AVIF，旧设置会保留。" }]);
+
+  // A reply goes the same way as one typed on the session page: through the app that owns the conversation.
+  const sends = () => readdirSync(env.fakeLog).filter((f) => /^axctl-\d+\.args$/.test(f)).length;
+  const before = sends();
+  expect(await call("reply_to_session", { id: "claude:local_search-1", text: "顺便把 HEIC 也列上" })).toContain("已发到「导出设置整理」");
+  expect(sends()).toBe(before + 1);
+  expect(readFileSync(join(env.fakeLog, `axctl-${before + 1}.args`), "utf8").trim().split("\n").slice(0, 3)).toEqual(["reply", "--session", "local_search-1"]);
+  expect(readFileSync(join(env.fakeLog, `axctl-${before + 1}.prompt`), "utf8")).toBe("顺便把 HEIC 也列上");
+  await client.close();
+
+  // The tools hand out what was said in the sessions, so only this machine, asking by its own name, is answered:
+  // a web page that points its domain at 127.0.0.1 arrives with that domain as Host.
+  const status = (headers: Record<string, string>) =>
+    new Promise<number>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port: env.mcpPort, path: "/mcp", method: "POST", headers: { "content-type": "application/json", ...headers } }, (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      });
+      req.on("error", reject);
+      req.end("{}");
+    });
+  expect(await status({ host: "rebound.example" })).toBe(403);
+  expect(await status({ origin: "https://some.site" })).toBe(403);
 });

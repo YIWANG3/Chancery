@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Reply } from "lucide-react";
 import type { SessionApp, SessionRow, SessionState } from "@core/overview";
+import { SESSION_BUCKET, type SessionBucket } from "@core/sessionBuckets";
 import type { MsgKey } from "@core/i18n";
 import { SESSION_APPS, SESSION_APP_INFO, isDrivable } from "@core/sessionApps";
+import type { SearchHit, SearchMatch } from "@core/sessionIndex";
 import { api } from "./api";
 import { cn } from "./cn";
 import { useT, type T } from "./i18n";
@@ -39,20 +41,9 @@ export const STATE_DOT: Record<SessionState, string> = {
   done: "bg-muted/60",
 };
 
-/** The states fold into four questions a person asks of the list. */
-export type Bucket = "needs" | "look" | "running" | "ended";
-export const BUCKET: Record<SessionState, Bucket> = {
-  "needs-you": "needs",
-  error: "needs",
-  stuck: "needs",
-  review: "look",
-  unread: "look",
-  running: "running",
-  delegated: "running",
-  interrupted: "ended",
-  expired: "ended",
-  done: "ended",
-};
+/** The states fold into four questions a person asks of the list (the table is the core's, shared with the steward's tools). */
+export type Bucket = SessionBucket;
+export const BUCKET = SESSION_BUCKET;
 export const bucketKey = (bucket: Bucket): MsgKey => `bucket.${bucket}`;
 
 export const APP_LABEL = Object.fromEntries(SESSION_APPS.map((app) => [app, SESSION_APP_INFO[app].name])) as Record<SessionApp, string>;
@@ -229,9 +220,36 @@ export function ProjectTag({ name, active, onClick }: ProjectTagProps) {
   );
 }
 
+export interface FoundProps {
+  match: SearchMatch;
+  /** The words that were searched for, to mark in the snippet. */
+  words: string[];
+}
+
+/** What to show of a search hit under its session: the first match inside the conversation. A match in the title
+ *  or the status line is already on screen, so there is nothing to add for it. */
+export function foundIn(hit: SearchHit | undefined, query: string): FoundProps | undefined {
+  const match = hit?.matches.find((m) => m.where === "prompt" || m.where === "reply" || m.where === "file");
+  return match ? { match, words: query.toLowerCase().split(/\s+/).filter(Boolean) } : undefined;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** One line saying where in the conversation the search found its words, with the words marked. */
+export function Found({ match, words, className }: FoundProps & { className?: string }) {
+  const t = useT();
+  const parts = words.length ? match.snippet.split(new RegExp(`(${words.map(escapeRe).join("|")})`, "gi")) : [match.snippet];
+  return (
+    <span className={cn("text-[13px] leading-[22px] text-muted", className)} title={match.turn ? t("search.turn", { n: match.turn }) : undefined}>
+      <span className="mr-2 text-text/70">{t(`search.where.${match.where as "prompt" | "reply" | "file"}`)}</span>
+      {parts.map((part, i) => (i % 2 ? <mark key={i} className="bg-transparent text-text font-medium">{part}</mark> : part))}
+    </span>
+  );
+}
+
 /** One session as a row. The title gets whatever width is left; the second line carries its project tag (when the
  *  list mixes projects) and what the session says about itself, at full strength when it is held up. */
-export function SessionItem({ s, now, project }: { s: SessionRow; now: number; project?: ProjectTagProps }) {
+export function SessionItem({ s, now, project, found }: { s: SessionRow; now: number; project?: ProjectTagProps; found?: FoundProps }) {
   const t = useT();
   const heldUp = BUCKET[s.state] === "needs";
   const reply = useReply(s, now);
@@ -262,6 +280,7 @@ export function SessionItem({ s, now, project }: { s: SessionRow; now: number; p
               )}
             </span>
           )}
+          {found && <Found {...found} className="line-clamp-2" />}
         </span>
         <span className={cn("w-[48px] shrink-0 text-[13px] text-muted leading-6", project && "hidden lg:block")}>{APP_LABEL[s.app]}</span>
         <span className="w-[72px] shrink-0 text-right text-[13px] text-muted tabular-nums leading-6 whitespace-nowrap" title={new Date(s.at).toLocaleString()}>

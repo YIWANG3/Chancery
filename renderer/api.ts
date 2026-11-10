@@ -5,6 +5,7 @@ import type { DaemonStatus } from "@core/daemon";
 import type { DiscoveredProject } from "@core/discover";
 import type { TicketDraft } from "@core/clerk";
 import type { Overview } from "@core/overview";
+import type { SearchHit } from "@core/sessionIndex";
 import type { StartProjects } from "@core/sessionStart";
 import type { Lang, LangPref } from "@core/i18n";
 export type { TicketDraft };
@@ -133,7 +134,12 @@ export const api = {
   },
   agents: { claude: () => call<ClaudeAgent[]>("agents:claude") },
   /** Every Claude Desktop and Codex session on this machine, by project. Read from the two apps' own state. */
-  sessions: { overview: () => call<Overview>("sessions:overview") },
+  sessions: {
+    overview: () => call<Overview>("sessions:overview"),
+    /** Which of those sessions contain every word of the query, in their title or anywhere in the conversation,
+     *  best match first, each with where the words were found. */
+    search: (query: string) => call<SearchHit[]>("sessions:search", { query }),
+  },
   ax: {
     /** `light` asks only whether the permission is there, without reading Claude Desktop's sidebar (which takes seconds). */
     status: (prompt?: boolean, light?: boolean) => call<AxStatus>("ax:status", { prompt, light }),

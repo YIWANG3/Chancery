@@ -1,10 +1,33 @@
 // Serves the steward MCP over streamable HTTP on localhost, stateless: one server + transport per request.
+// Only for this machine: the socket listens on 127.0.0.1 and every request is checked to have come by that name.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createChanceryMcpServer, type McpDeps } from "../core/mcp.js";
 
+const LOCAL = ["127.0.0.1", "localhost", "[::1]"];
+
+/**
+ * Whether a request was addressed to this machine by its own name, by something on this machine. The tools hand out
+ * what was said in the person's sessions, so a web page must not be able to reach them: one that points its own
+ * domain at 127.0.0.1 arrives with that domain as Host, and anything a browser sends cross-site carries an Origin.
+ */
+export function isLocalRequest(headers: { host?: string; origin?: string }): boolean {
+  const host = (headers.host ?? "").replace(/:\d+$/, "").toLowerCase();
+  if (!LOCAL.includes(host)) return false;
+  if (!headers.origin) return true;
+  try {
+    return LOCAL.includes(new URL(headers.origin).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 export function startMcpHttp(deps: McpDeps, port: number, log: (m: string) => void): Server {
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
+    if (!isLocalRequest(req.headers)) {
+      res.writeHead(403).end();
+      return;
+    }
     if (req.url === "/" || req.url === "/health") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true, mcp: "/mcp" }));

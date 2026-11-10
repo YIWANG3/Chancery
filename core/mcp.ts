@@ -1,17 +1,29 @@
-// The steward's tools: an MCP server over the same repo the app uses. Any Claude or Codex session that has it
-// registered can file, read and move tickets, so "把刚才讨论的提成工单" works from inside a conversation.
+// The MCP server the app serves on localhost. What it offers is the steward's session tools (steward.ts): any Claude
+// or Codex conversation that has it registered can look the person's sessions up, read them and, with the person's
+// say-so, write into one.
+//
+// The ticket tools below belong to the shelved ticket pipeline. They are registered only when the caller hands in
+// the ticket store, which the app no longer does; like the ticket page, they are kept until the pipeline is either
+// revived or removed.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Daemon } from "./daemon.js";
 import type { Repo } from "./repo.js";
+import { STEWARD_INSTRUCTIONS, registerStewardTools, type StewardDeps } from "./steward.js";
 import { TICKET_KINDS, TICKET_STATUSES, type Project, type TicketStatus } from "./types.js";
 
-export interface McpDeps {
+export interface TicketToolDeps {
   repo: Repo;
   daemon: Daemon;
 }
 
-const INSTRUCTIONS = `Chancery 是用户的工单和 Agent 派发平台。工单存在它自己的库里，守护进程会把「可派」的工单分给 Claude / Codex 去做。
+export interface McpDeps {
+  steward: StewardDeps;
+  /** The shelved ticket pipeline's tools; left out, only the session tools are offered. */
+  tickets?: TicketToolDeps;
+}
+
+const TICKET_INSTRUCTIONS = `Chancery 也是用户的工单和 Agent 派发平台。工单存在它自己的库里，守护进程会把「可派」的工单分给 Claude / Codex 去做。
 
 什么时候用：
 - 用户说「记一个」「提成工单」「把这个任务提交上去」「交给平台做」：把当前讨论整理成一张工单后调 create_ticket。标题一句话说做什么；正文写背景、要改什么、验收标准（可测的条目）、范围外；讨论里已经定了的事写进正文，不要让 worker 重新讨论。用户没指定项目时按讨论内容选（list_projects 看有哪些），拿不准就问一句。
@@ -27,9 +39,13 @@ function matchProject(projects: Project[], key: string): Project | undefined {
 const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }] });
 
 export function createChanceryMcpServer(deps: McpDeps): McpServer {
-  const { repo, daemon } = deps;
-  const server = new McpServer({ name: "chancery", version: "0.1.0" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "chancery", version: "0.2.0" }, { instructions: deps.tickets ? `${STEWARD_INSTRUCTIONS}\n\n${TICKET_INSTRUCTIONS}` : STEWARD_INSTRUCTIONS });
+  registerStewardTools(server, deps.steward);
+  if (deps.tickets) registerTicketTools(server, deps.tickets);
+  return server;
+}
 
+function registerTicketTools(server: McpServer, { repo, daemon }: TicketToolDeps): void {
   server.registerTool("list_projects", { description: "已注册的项目：name、repo、dir、默认执行器。create_ticket 的 project 用这里的 name。", inputSchema: {} }, async () => {
     const projects = await repo.listProjects();
     return text(projects.map((p) => ({ name: p.name, repo: p.repo, dir: p.dir, default_executor: p.default_executor, parallel: p.parallel })));
@@ -104,6 +120,4 @@ export function createChanceryMcpServer(deps: McpDeps): McpServer {
   });
 
   server.registerTool("daemon_status", { description: "守护进程在不在跑、上次 tick、有没有错。", inputSchema: {} }, async () => text(daemon.status()));
-
-  return server;
 }

@@ -11,6 +11,7 @@ import { openSession } from "./openSession.js";
 import { startSessionWatch, type SessionWatch } from "./sessionWatch.js";
 import { startPg, type PgHandle } from "./pg.js";
 import { startMcpHttp } from "./mcpHttp.js";
+import { createSteward, type Steward } from "./steward.js";
 import type { Server } from "node:http";
 import { loadSettings, saveSettings, type FloatPlace, type FloatStyle, type Settings, type ThemePref } from "./settings.js";
 
@@ -74,6 +75,7 @@ let tray: Tray | null = null;
 let mcpHttp: Server | null = null;
 let awakeBlocker: number | null = null;
 let sessionWatch: SessionWatch | null = null;
+let steward: Steward | null = null;
 let floatControl: FloatControl | null = null;
 let notifier: Notifier | null = null;
 const OFFSCREEN = process.env.CHANCERY_OFFSCREEN === "1";
@@ -485,6 +487,8 @@ function startWatchingSessions() {
       heldUp = heldUpSessions(overview);
       refreshAttention();
       broadcast("chancery:changed");
+      // Keeps the digests warm, so the first search after a change does not wait on a read.
+      void steward?.index.sync(overview.sessions).catch((err: unknown) => log(`session index: ${String(err)}`));
     },
     onOpen: (alert) => jumpTo(alert.session),
     onOpenList: () => {
@@ -493,11 +497,30 @@ function startWatchingSessions() {
     },
     log,
   });
+  // The steward only reads sessions, so its tools are served from here on, whether or not the database comes up.
+  const watch = sessionWatch;
+  steward = createSteward({
+    sessions: () => watch.latest(),
+    refreshSessions: () => void watch.refresh().catch(() => {}),
+    open: async (s) => {
+      if (s.open) await openSession(s.open, settings, log);
+      else showMain();
+    },
+    claudeBin: () => settings.claudeBin,
+    lang,
+    axctlPath,
+    home: process.env.CHANCERY_SESSIONS_HOME || undefined,
+    cachePath: join(userData, "session-index.json"),
+    offscreen: OFFSCREEN,
+    log,
+  });
+  mcpHttp = startMcpHttp({ steward: steward.deps }, settings.mcpPort, log);
 }
 
 /**
- * The ticket pipeline's side: the database, the daemon on top of it, the MCP server. The session overview needs none
- * of it, so the window is up before this starts and stays usable when it fails.
+ * The ticket pipeline's side: the database and the daemon on top of it. The session overview, the search and the
+ * MCP server's session tools need none of it, so the window is up before this starts and all of them stay usable
+ * when it fails.
  */
 async function boot(): Promise<Backend> {
   pg = await startPg({ dataDir: join(userData, "pgdata"), port: settings.pgPort, external: settings.pgConnectionString || undefined, log });
@@ -544,7 +567,6 @@ async function boot(): Promise<Backend> {
   });
   await daemon.start();
   log("daemon started");
-  mcpHttp = startMcpHttp({ repo, daemon }, settings.mcpPort, log);
   return { repo, daemon };
 }
 
@@ -588,6 +610,7 @@ function setupIpc(backend: Promise<Backend>) {
     sessions: () => sessionWatch?.latest() ?? Promise.reject(new Error("session watch is not running")),
     refreshSessions: () => void sessionWatch?.refresh().catch(() => {}),
     sessionsHome: process.env.CHANCERY_SESSIONS_HOME || undefined,
+    searchSessions: (query) => steward?.search(query) ?? Promise.resolve([]),
   });
 }
 

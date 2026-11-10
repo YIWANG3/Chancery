@@ -156,6 +156,17 @@ export function SettingsPage() {
         </SettingRow>
       </SettingGroup>
 
+      {/* The steward: any Claude or Codex session with these tools connected. A session feature, so it is not folded
+          away with the ticket pipeline. */}
+      <SettingGroup title={t("settings.steward")}>
+        <SettingRow title={t("settings.stewardTitle")} description={t("settings.stewardHint")} stacked>
+          <div className="flex flex-col gap-2 w-full">
+            <Code>claude mcp add --scope user --transport http chancery http://127.0.0.1:{s.mcpPort}/mcp</Code>
+            <Code>codex mcp add chancery --url http://127.0.0.1:{s.mcpPort}/mcp</Code>
+          </div>
+        </SettingRow>
+      </SettingGroup>
+
       {/* Everything below belongs to the ticket pipeline, which is shelved: out of the way of someone who only
           watches sessions, one click away for whoever still runs it. */}
       <Disclosure title={t("settings.pipeline")} hint={t("settings.pipelineHint")}>
@@ -229,12 +240,6 @@ export function SettingsPage() {
         <SettingGroup title={t("settings.integration")}>
           <SettingRow title={t("settings.database")} description={s.pg.embedded ? t("settings.dbEmbedded") : t("settings.dbExternal")} stacked>
             <Code>{s.pg.connectionString}</Code>
-          </SettingRow>
-          <SettingRow title="MCP" description={t("settings.mcpHint")} stacked>
-            <div className="flex flex-col gap-2 w-full">
-              <Code>claude mcp add --scope user --transport http chancery http://127.0.0.1:{s.mcpPort}/mcp</Code>
-              <Code>codex mcp add chancery --url http://127.0.0.1:{s.mcpPort}/mcp</Code>
-            </div>
           </SettingRow>
         </SettingGroup>
       </Disclosure>

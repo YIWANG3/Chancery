@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Columns3, List, Plus } from "lucide-react";
+import { Columns3, List, Plus, Search, X } from "lucide-react";
 import type { Overview, SessionApp, SessionRow } from "@core/overview";
 import { SESSION_APPS, isDrivable, type DrivableApp } from "@core/sessionApps";
+import type { SearchHit } from "@core/sessionIndex";
 import { api } from "../api";
 import { cn } from "../cn";
 import { useChanged } from "../hooks";
 import { useT } from "../i18n";
 import { NewSession } from "../NewSession";
 import { Welcome } from "../Welcome";
-import { APP_LABEL, BUCKET, ProjectTag, SessionItem, State, ago, bucketKey, useReply, windowOptions, type Bucket, type ProjectTagProps, type WindowDays } from "../sessionBits";
+import { APP_LABEL, BUCKET, Found, ProjectTag, SessionItem, State, ago, bucketKey, foundIn, useReply, windowOptions, type Bucket, type FoundProps, type ProjectTagProps, type WindowDays } from "../sessionBits";
 import { Button, Empty, PAGE_ACTIONS, Segmented, Select } from "../ui";
 
 const BUCKETS = ["needs", "look", "running", "ended"] as const;
@@ -48,6 +49,10 @@ export function Sessions() {
   // the session has had time to show up in the list by itself.
   const [creating, setCreating] = useState(false);
   const [started, setStarted] = useState<{ app: DrivableApp; project: string } | null>(null);
+  // The search box looks inside the conversations, which only the main process has read. `hits` is null while
+  // nothing is being searched for; while a new answer is on its way the last one stays up.
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<{ query: string; byKey: Map<string, SearchHit> } | null>(null);
   // The button lives in the window's title row, which the app shell renders; it is there once this has mounted.
   const [titleRow, setTitleRow] = useState<HTMLElement | null>(null);
   useEffect(() => setTitleRow(document.getElementById(PAGE_ACTIONS)), []);
@@ -87,11 +92,41 @@ export function Sessions() {
   }, [filter]);
 
   const now = overview?.readAt ?? Date.now();
-  // Which app and how far back narrow everything, the project menu included.
+  const wanted = query.trim();
+  // Asked again whenever the list was read again, so a session that just said the word shows up by itself.
+  useEffect(() => {
+    if (!wanted) {
+      setHits(null);
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      api.sessions
+        .search(wanted)
+        .then((found) => {
+          if (!stale) setHits({ query: wanted, byKey: new Map(found.map((h) => [h.key, h])) });
+        })
+        .catch(() => {
+          if (!stale) setHits({ query: wanted, byKey: new Map() });
+        });
+    }, 180);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [wanted, overview?.readAt]);
+
+  // Which app and how far back narrow everything, the project menu included. A search looks through everything
+  // the overview has, whatever the time range says, and puts the best match first.
   const inScope = useMemo(() => {
+    const all = (overview?.sessions ?? []).filter((s) => !filter.app || s.app === filter.app);
+    if (hits) {
+      const rank = new Map([...hits.byKey.keys()].map((key, i) => [key, i]));
+      return all.filter((s) => rank.has(`${s.app}:${s.id}`)).sort((a, b) => rank.get(`${a.app}:${a.id}`)! - rank.get(`${b.app}:${b.id}`)!);
+    }
     const since = now - Number(filter.days) * 86_400_000;
-    return (overview?.sessions ?? []).filter((s) => s.at >= since && (!filter.app || s.app === filter.app));
-  }, [overview, filter.app, filter.days, now]);
+    return all.filter((s) => s.at >= since);
+  }, [overview, filter.app, filter.days, now, hits]);
 
   const projects = useMemo(() => {
     const tally = new Map<string, { needs: number; total: number }>();
@@ -127,8 +162,32 @@ export function Sessions() {
       {t("sessions.new")}
     </Button>
   );
+  // In the title row with the page's one main action: the filter bar below is already as wide as the window allows.
+  const searchBox = (
+    <label className="no-drag h-8 w-[240px] flex items-center gap-2 rounded-md border border-line bg-panel px-2.5 text-[13px] focus-within:border-accent">
+      <Search size={14} className="shrink-0 text-muted" />
+      <input
+        type="text"
+        aria-label={t("sessions.searchLabel")}
+        placeholder={t("sessions.search")}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setQuery("");
+        }}
+        className="flex-1 min-w-0 !h-auto !min-h-0 !p-0 !border-0 !bg-transparent !rounded-none text-text placeholder:text-muted focus:outline-none"
+      />
+      {query && (
+        <button type="button" aria-label={t("sessions.searchClear")} title={t("sessions.searchClear")} onClick={() => setQuery("")} className="shrink-0 text-muted hover:text-text">
+          <X size={14} />
+        </button>
+      )}
+    </label>
+  );
   const rows = !board && filter.bucket ? byBucket[filter.bucket] : inProject;
   // Every row and card carries its project as a tag; clicking the tag narrows the page to that project, or widens it again.
+  // What the search found inside a session, for the line under its row; nothing when the match is the title.
+  const foundOf = (s: SessionRow): FoundProps | undefined => (hits ? foundIn(hits.byKey.get(`${s.app}:${s.id}`), hits.query) : undefined);
   const tagOf = (s: SessionRow) => ({ name: nameOf.get(s.projectKey) ?? t("common.other"), active: project === s.projectKey, onClick: () => setFilter({ ...filter, project: project === s.projectKey ? "" : s.projectKey }) });
 
   return (
@@ -169,9 +228,17 @@ export function Sessions() {
           onChange={(key) => setFilter({ ...filter, project: key })}
           options={[{ value: "", label: t("sessions.allProjects", { n: inScope.length }) }, ...projects.map((p) => ({ value: p.key, label: `${p.name} ${p.total}${p.needs ? t("sessions.needsSuffix", { n: p.needs }) : ""}` }))]}
         />
-        <Select size="sm" ariaLabel={t("sessions.timeRange")} className="!w-auto" value={filter.days} onChange={(days) => setFilter({ ...filter, days })} options={windowOptions(t)} />
+        {/* A search covers everything that was read, so the time range has nothing to say while one is on. */}
+        {!hits && <Select size="sm" ariaLabel={t("sessions.timeRange")} className="!w-auto" value={filter.days} onChange={(days) => setFilter({ ...filter, days })} options={windowOptions(t)} />}
       </div>
-      {titleRow && createPortal(newButton, titleRow)}
+      {titleRow &&
+        createPortal(
+          <>
+            {searchBox}
+            {newButton}
+          </>,
+          titleRow,
+        )}
 
       {creating && (
         <NewSession
@@ -225,7 +292,7 @@ export function Sessions() {
                 </h2>
                 <div role="list" aria-label={t(bucketKey(b))} className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pb-2">
                   {byBucket[b].map((s) => (
-                    <SessionCard key={`${s.app}:${s.id}`} s={s} now={now} project={tagOf(s)} />
+                    <SessionCard key={`${s.app}:${s.id}`} s={s} now={now} project={tagOf(s)} found={foundOf(s)} />
                   ))}
                   {!byBucket[b].length && <span className="px-1 py-2 text-[13px] text-muted">{t("common.none")}</span>}
                 </div>
@@ -238,16 +305,17 @@ export function Sessions() {
           {!rows.length && (
             <Empty
               action={
-                // Sessions there are, only older than the window shows: the way to them is one click.
-                !inScope.length && filter.days !== "14" && overview.sessions.some((s) => !filter.app || s.app === filter.app) ? <Button onClick={() => setFilter({ ...filter, days: "14" })}>{t("sessions.widen")}</Button> : undefined
+                // Sessions there are, only older than the window shows: the way to them is one click. A search
+                // already looks through all of them, so it has no wider window to offer.
+                !hits && !inScope.length && filter.days !== "14" && overview.sessions.some((s) => !filter.app || s.app === filter.app) ? <Button onClick={() => setFilter({ ...filter, days: "14" })}>{t("sessions.widen")}</Button> : undefined
               }
             >
-              {inScope.length ? t("sessions.noneMatch") : Object.values(overview.sources).some(Boolean) ? t("sessions.noneInWindow") : t("sessions.noneAnywhere")}
+              {hits && !inScope.length ? t("sessions.searchNone", { query: hits.query }) : inScope.length ? t("sessions.noneMatch") : Object.values(overview.sources).some(Boolean) ? t("sessions.noneInWindow") : t("sessions.noneAnywhere")}
             </Empty>
           )}
           <div role="list" className="flex flex-col gap-0.5 -mx-3">
             {rows.map((s) => (
-              <SessionItem key={`${s.app}:${s.id}`} s={s} now={now} project={tagOf(s)} />
+              <SessionItem key={`${s.app}:${s.id}`} s={s} now={now} project={tagOf(s)} found={foundOf(s)} />
             ))}
           </div>
         </div>
@@ -258,7 +326,7 @@ export function Sessions() {
 
 /** One session as a card on the board. The column already says which question it answers, so the card leads with
  *  the exact state only where a column holds several (error and stuck sit with needs-you). */
-function SessionCard({ s, now, project }: { s: SessionRow; now: number; project: ProjectTagProps }) {
+function SessionCard({ s, now, project, found }: { s: SessionRow; now: number; project: ProjectTagProps; found?: FoundProps }) {
   const t = useT();
   const heldUp = BUCKET[s.state] === "needs";
   const reply = useReply(s, now);
@@ -278,6 +346,7 @@ function SessionCard({ s, now, project }: { s: SessionRow; now: number; project:
           {s.detail}
         </span>
       )}
+      {found && <Found {...found} className="line-clamp-3" />}
       <div className="flex items-center gap-1">
         <ProjectTag {...project} />
         <span className="ml-auto flex items-center gap-1">{reply.buttons}</span>

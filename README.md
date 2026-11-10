@@ -78,10 +78,10 @@ bin/chancery sessions --json
 
 第一次打开：
 
-- 窗口不等数据库。会话是从两家自己的文件里读的，所以主进程先把窗口和会话的接口立起来，数据库、守护进程和 MCP 在后面起（`main/index.ts` 的 `boot`）。要数据库的接口（项目注册、工单、守护进程）各自等它；它起不来时这些接口带着原因失败，会话页、设置页、浮窗照常。退出时如果数据库还在起，先等它起完再停，不留下 Postgres 进程。
+- 窗口不等数据库。会话是从两家自己的文件里读的，所以主进程先把窗口和会话的接口立起来，数据库和守护进程在后面起（`main/index.ts` 的 `boot`）。要数据库的接口（项目注册、工单、守护进程）各自等它；它起不来时这些接口带着原因失败，会话页、搜索、设置页、浮窗和 MCP 上的会话工具照常（MCP 服务跟着会话监视起，不等数据库）。退出时如果数据库还在起，先等它起完再停，不留下 Postgres 进程。
 - 会话页顶上有一张说明（`renderer/Welcome.tsx`），点「知道了」之前一直在（设置里的 `welcomed`）：两家各读到多少会话，或者没找到（总览的 `sources` 说那一家的会话数据在不在这台机器上，不在不算出错）；回复和新建会话要的辅助功能权限有没有，没有就带「去授权」，授权后这一行自己变；会话提醒的开关。上面没有哪一项是必须先做的，下面的列表已经能用。
 - 两家都没装时，列表的位置说明原因。有会话但都在时间范围之外时，给一个「看最近 14 天」。
-- 设置页先是外观、会话（提醒、浮窗、登录时启动）、权限（辅助功能）；工单流水线的设置（Claude / Codex worker、工单整理、守护进程、数据库、MCP）折在「工单流水线」一行后面，展开与否记在本机。侧栏底部的守护进程状态只在注册过项目之后出现。
+- 设置页先是外观、会话（提醒、浮窗、登录时启动）、权限（辅助功能）、管理会话（接上 MCP 的两条命令）；工单流水线的设置（Claude / Codex worker、工单整理、守护进程、数据库、MCP 端口）折在「工单流水线」一行后面，展开与否记在本机。侧栏底部的守护进程状态只在注册过项目之后出现。
 
 工单页已从导航里拿掉，路由 `#/tickets` 还能进（端到端测试用 `CHANCERY_ROUTE=/tickets` 从它启动）。
 
@@ -149,20 +149,18 @@ axctl dump --app claude|codex [--grep TEXT]    打印辅助功能树，找选择
 
 Codex app 的 AX 两个坑，都在 axctl 里处理了：composer 对 AXValue 的写入要等下一次对输入框的交互才提交，而且新 composer 的第一次写会被吞，所以写、按一下输入框、读回校验，循环到读到为止；刚发送完的几秒内「Start new chat」会被忽略，要重试。
 
-## 守护进程每轮做什么
+## 搜会话和管理会话
 
-每 30 秒或库里有变动时醒一次，四步各自独立，一步失败不影响其余：
+会话页右上角的搜索框搜的是标题、现状，以及对话本身：你在会话里说过的每句话、每一轮最后的回复、它改过的文件路径。多个词用空格隔开，每个词都要出现；命中在对话里时，那一句显示在会话下面。搜索时不受时间范围限制，看的是读到的全部（最近 14 天）。
 
-1. **轮询**在跑的 assignment。执行器报心跳或进度才续租；5 分钟没动静当卡住，转等我。撞到额度报成 `failed(reason=quota)`，该后端退避 1 小时（`ledger`），工单回可派，没钉死后端的下一轮改派另一家。
-2. **自动分类**（设置里可关）：收件里的工单交给模型判 kind、priority、area，以及去向：可派 / 要设计 / 是个问题就直接答了关掉。
-3. **审计**（设置里可关）：worker 开了 PR 进待审后，在它的 worktree 里起一轮只读审计，最后一行 `AUDIT: PASS` 进待合并，`FAIL` 带着发现回可派再修一轮，三轮不过转等我。审计用 `platform.json` 的 `agents.audit`，没有就用 worker 那家。
-4. **派单**：`SKIP LOCKED` 领一张可派的，建 worktree（新建的跑一次 `platform.json` 的 `setup`），起 worker。
+底下是一份会话摘录索引（`core/sessionDigest.ts`、`core/sessionIndex.ts`）：
 
-headless 的 worker（print / exec 模式）有围栏：`--strict-mcp-config` 不加载用户级 MCP；`--settings` 里 deny 主 checkout、`~/.ssh`、`.env`、钥匙串命令、app 自己的数据目录；审计再禁 Edit / Write / git commit / push，Codex 审计用 `read-only` 沙箱。桌面端模式的会话用桌面端自己的设置，只受 prompt 约束。worker 和审计都用 `taskpolicy -b` 起，走后台 QoS；有活在跑时 app 阻止机器空闲休眠。
+- Claude（桌面端的会话和终端里起的会话）读 `~/.claude/projects/<目录>/<CLI 会话 id>.jsonl`，只取对话本身的行，工具调用和输出、子 agent 的旁支、CLI 记的请求日志都跳过；文件只增不改，所以每次从上次读到的位置接着读。
+- Codex 读 `~/.codex/thread_history_1.sqlite` 的 `thread_items`（`userMessage`、`final_answer` 的 `agentMessage`、`fileChange` 的路径），文字在 SQL 里取出来，图片和 diff 不出库。
+- 摘录不是全文：每句话最多 4000 字，每条回复最多 6000 字，中间的过程不存。缓存在 `session-index.json`（app 的数据目录下），删掉会重新读。记录文件已经被清理的老会话只能按标题搜到。
+- 别家（Cursor、Copilot、DeepSeek Harness、OpenCode 等）的对话正文没有接，只按标题和它说的现状搜；`read_session` 对它们只给状态。
 
-## 从对话里提工单：MCP
-
-app 在跑时，`http://127.0.0.1:41710/mcp`（端口可改）是一个 streamable HTTP 的 MCP server，工具：`list_projects`、`list_tickets`、`get_ticket`、`create_ticket`、`set_status`、`answer_ticket`、`daemon_status`。server 的说明里写了什么时候该用：用户说「提成工单 / 记一个 / 交给平台」时把讨论整理成标题、正文（背景 / 要做什么 / 验收标准 / 范围外 / 已定的事）再 `create_ticket`，默认进 inbox。注册一次：
+**管理会话**是接上这组工具的任何一个 Claude 或 Codex 会话：app 在跑时，`http://127.0.0.1:41710/mcp`（端口可改）是一个 streamable HTTP 的 MCP server，接一次，之后在那一家开个会话就能用自然语言问「谁在等我」「某件事做到哪了」「哪个会话改过某个文件」。
 
 ```bash
 claude mcp add --scope user --transport http chancery http://127.0.0.1:41710/mcp
@@ -171,6 +169,29 @@ claude mcp add --scope user --transport http chancery http://127.0.0.1:41710/mcp
 ```bash
 codex mcp add chancery --url http://127.0.0.1:41710/mcp
 ```
+
+工具（`core/steward.ts`）：`list_sessions`、`search_sessions`、`read_session` 只读；`reply_to_session`、`start_session` 和会话页上的回复、新建会话走同一条路（由那一家的应用发出去），发之前 Chancery 自己弹窗让你确认，默认按钮是「不发」；`open_session` 把会话在它的应用里调到前台。列出、搜索、读、打开覆盖总览里的每一家；回复和新建只有 Claude 桌面端和 Codex（`DRIVABLE_APPS`），对别家的会话回复会直接说不行，不弹窗。
+
+几条边界：
+
+- 应用里不调模型。问答的是你接上的那个会话，走的是它那一家的订阅。
+- 管理会话不记事：每次回答都现查各家的文件，所以它可以随时关掉重开。状态判定和提醒仍然是 app 里的确定性代码，不依赖有没有管理会话。
+- 正在跑的会话不能回复，所以管理会话也回不了它自己。
+
+## 守护进程每轮做什么
+
+每 30 秒或库里有变动时醒一次，四步各自独立，一步失败不影响其余：
+
+1. **轮询**在跑的 assignment。执行器报心跳或进度才续租；5 分钟没动静当卡住，转等我。撞到额度报成 `failed(reason=quota)`，该后端退避 1 小时（`ledger`），工单回可派，没钉死后端的下一轮改派另一家。
+2. **自动分类**（设置里开，默认关）：收件里的工单交给模型判 kind、priority、area，以及去向：可派 / 要设计 / 是个问题就直接答了关掉。
+3. **审计**（设置里可关）：worker 开了 PR 进待审后，在它的 worktree 里起一轮只读审计，最后一行 `AUDIT: PASS` 进待合并，`FAIL` 带着发现回可派再修一轮，三轮不过转等我。审计用 `platform.json` 的 `agents.audit`，没有就用 worker 那家。
+4. **派单**：`SKIP LOCKED` 领一张可派的，建 worktree（新建的跑一次 `platform.json` 的 `setup`），起 worker。
+
+headless 的 worker（print / exec 模式）有围栏：`--strict-mcp-config` 不加载用户级 MCP；`--settings` 里 deny 主 checkout、`~/.ssh`、`.env`、钥匙串命令、app 自己的数据目录；审计再禁 Edit / Write / git commit / push，Codex 审计用 `read-only` 沙箱。桌面端模式的会话用桌面端自己的设置，只受 prompt 约束。worker 和审计都用 `taskpolicy -b` 起，走后台 QoS；有活在跑时 app 阻止机器空闲休眠。
+
+## 从对话里提工单：MCP（已搁置）
+
+工单流水线搁置后，MCP server 不再提供工单工具（`list_projects`、`list_tickets`、`get_ticket`、`create_ticket`、`set_status`、`answer_ticket`、`daemon_status`）；代码还在 `core/mcp.ts`，给 `createChanceryMcpServer` 传 `tickets` 才会注册。现在这个地址提供的是上面的会话工具。
 
 ## 工单整理：自然语言 → 工单
 
@@ -181,6 +202,7 @@ codex mcp add chancery --url http://127.0.0.1:41710/mcp
 - `CHANCERY_ROUTE=/inbox` 启动时打开哪一页
 - `CHANCERY_SCREENSHOT=/path/x.png` 渲染完截图后退出（`CHANCERY_SCREENSHOT_DELAY` 毫秒）
 - `CHANCERY_SESSIONS_HOME` 会话总览从这个目录下读两家的状态，代替真实的 home（测试用）
+- `CHANCERY_STEWARD_CONFIRM=yes|no` 管理会话要回复或开新会话时不弹窗，直接按这个回答（测试用）
 - `CHANCERY_NOTICES=panel` 提醒不试系统通知，直接用提醒浮窗
 - `CHANCERY_SESSION_POLL_MS` 会话总览多久读一次两家的状态，默认 10000（测试用 1000）
 - `CHANCERY_OFFSCREEN=1` 提醒浮窗和置顶浮窗都放到屏幕外（测试用）

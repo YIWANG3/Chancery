@@ -182,9 +182,11 @@ export const test = base.extend<{ evidence: void }, { env: TestEnv; app: Electro
       const app = await electron.launch({
         args: [repoRoot],
         // These specs exercise the ticket pipeline, whose page is no longer in the navigation, so start on it.
+        // CHANCERY_STEWARD_CONFIRM answers the dialog the steward's reply and new-session tools put up, which
+        // nobody is there to click.
         // The session watch reads every second instead of every ten: the specs that change a session file and wait
         // for the list to follow would otherwise spend most of their time waiting for the next read.
-        env: { ...process.env, CHANCERY_ROUTE: "/tickets", CHANCERY_USER_DATA: env.userData, CHANCERY_SESSIONS_HOME: env.sessionsHome, CHANCERY_SESSION_POLL_MS: "1000", CHANCERY_NOTICES: "panel", CHANCERY_OFFSCREEN: "1", CHANCERY_NO_EXTERNAL_OPEN: "1", CHANCERY_AXCTL: join(fakeBin, "axctl"), CHANCERY_FAKE_LOG: env.fakeLog, PATH: REAL ? (process.env.PATH ?? "") : `${fakeBin}:${process.env.PATH ?? ""}` },
+        env: { ...process.env, CHANCERY_ROUTE: "/tickets", CHANCERY_USER_DATA: env.userData, CHANCERY_SESSIONS_HOME: env.sessionsHome, CHANCERY_SESSION_POLL_MS: "1000", CHANCERY_NOTICES: "panel", CHANCERY_OFFSCREEN: "1", CHANCERY_NO_EXTERNAL_OPEN: "1", CHANCERY_STEWARD_CONFIRM: "yes", CHANCERY_AXCTL: join(fakeBin, "axctl"), CHANCERY_FAKE_LOG: env.fakeLog, PATH: REAL ? (process.env.PATH ?? "") : `${fakeBin}:${process.env.PATH ?? ""}` },
         timeout: 120_000, // the first start initialises the embedded Postgres cluster
       });
       await use(app);

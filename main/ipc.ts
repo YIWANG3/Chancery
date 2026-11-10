@@ -1,6 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { Daemon, Repo, TicketStatus } from "../core/index.js";
-import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, listStartProjects, replyToSession, sessionOpenFor, startSession, t, type Lang, type Overview, type DrivableApp, type ReplyTarget, type SessionOpen, type StartProjects, type StartTarget } from "../core/index.js";
+import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, listStartProjects, replyToSession, sessionOpenFor, startSession, t, type Lang, type Overview, type DrivableApp, type ReplyTarget, type SearchHit, type SessionOpen, type StartProjects, type StartTarget } from "../core/index.js";
 import { run } from "../core/util/run.js";
 import { openSession } from "./openSession.js";
 import type { FloatPlace, FloatStyle, Settings } from "./settings.js";
@@ -36,6 +36,8 @@ export interface IpcDeps {
   refreshSessions: () => void;
   /** Where the session overview reads the two apps' state from, when not the real home. */
   sessionsHome?: string;
+  /** The session page's search box: which of the listed sessions contain every word, and where. */
+  searchSessions: (query: string) => Promise<SearchHit[]>;
 }
 
 /** One channel per verb. The renderer calls window.chancery.invoke(channel, payload). */
@@ -129,6 +131,7 @@ export function registerIpc(deps: IpcDeps): void {
   // The overview comes from the session watch, which reads the two apps' own files on a timer whether or not a
   // window is open, and tells the windows when something changed.
   h("sessions:overview", () => deps.sessions());
+  h<{ query: string }, SearchHit[]>("sessions:search", ({ query }) => deps.searchSessions(query));
   // `light` asks only whether the permission is there. The full answer also reads Claude Desktop's sidebar, which
   // takes seconds and is no business of a page that only wants to say "granted" or "not yet".
   h<{ prompt?: boolean; light?: boolean } | undefined, unknown>("ax:status", async (p) => {

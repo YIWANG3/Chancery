@@ -6,6 +6,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { REAL } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
@@ -13,6 +15,8 @@ test.skip(REAL, "fake-CLI specs; set CHANCERY_E2E_REAL=1 for real.spec.ts instea
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const fakeBin = join(repoRoot, "tests", "e2e", "bin");
+
+const MCP_PORT = 41790;
 
 let root: string;
 let userData: string;
@@ -27,7 +31,7 @@ test.beforeAll(async () => {
   for (const d of [userData, sessionsHome, fakeLog]) mkdirSync(d, { recursive: true });
   // Nothing has been put away or chosen: only what keeps this copy apart from the real app and what makes the
   // database fail at once (nothing listens on port 1) instead of initialising a cluster.
-  writeFileSync(join(userData, "settings.json"), JSON.stringify({ language: "zh", pgConnectionString: "postgres://nobody:nothing@127.0.0.1:1/none", mcpPort: 41790, quickCaptureShortcut: "CommandOrControl+Alt+Shift+F18" }));
+  writeFileSync(join(userData, "settings.json"), JSON.stringify({ language: "zh", pgConnectionString: "postgres://nobody:nothing@127.0.0.1:1/none", mcpPort: MCP_PORT, quickCaptureShortcut: "CommandOrControl+Alt+Shift+F18" }));
   app = await electron.launch({
     args: [repoRoot],
     env: { ...process.env, CHANCERY_USER_DATA: userData, CHANCERY_SESSIONS_HOME: sessionsHome, CHANCERY_SESSION_POLL_MS: "1000", CHANCERY_NOTICES: "panel", CHANCERY_OFFSCREEN: "1", CHANCERY_NO_EXTERNAL_OPEN: "1", CHANCERY_AXCTL: join(fakeBin, "axctl"), CHANCERY_FAKE_LOG: fakeLog, PATH: `${fakeBin}:${process.env.PATH ?? ""}` },
@@ -75,6 +79,17 @@ test("数据库起不来：会话页、设置页照常，侧栏上没有守护�
   // The project page is every project the two apps have sessions in; with no database it is just empty.
   await win.getByRole("button", { name: "项目", exact: true }).click();
   await expect(win.getByText("这段时间各家都没有会话。")).toBeVisible();
+});
+
+test("数据库起不来：接上 MCP 的管理会话照常能用，会话工具都在", async () => {
+  // The session tools read the two apps' own files, like the session page, so the server is up without the database.
+  const client = new Client({ name: "e2e-firstrun", version: "0" });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${MCP_PORT}/mcp`)));
+  expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual(["list_sessions", "open_session", "read_session", "reply_to_session", "search_sessions", "start_session"]);
+  const listed = (await client.callTool({ name: "list_sessions", arguments: {} })) as { isError?: boolean; content: Array<{ text: string }> };
+  expect(listed.isError ?? false).toBe(false);
+  expect((JSON.parse(listed.content[0]!.text) as { sessions: unknown[] }).sessions).toEqual([]);
+  await client.close();
 });
 
 test("「知道了」之后说明不再出现，重开也一样", async () => {

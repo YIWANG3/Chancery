@@ -41,7 +41,8 @@ export interface Settings {
   clerkBackend: "auto" | "deepseek" | "claude";
   deepseekApiKey: string;
   deepseekModel: string;
-  /** The clerk classifies inbox tickets every tick (ready / needs-spec / answered). */
+  /** The clerk classifies inbox tickets every tick (ready / needs-spec / answered). Off unless turned on: a ticket
+   *  judged ready is dispatched to a worker, which nobody watching sessions asked for. */
   autoTriage: boolean;
   /** A read-only audit round after every PR, up to three per ticket. */
   auditEnabled: boolean;
@@ -92,7 +93,7 @@ export const DEFAULT_SETTINGS: Settings = {
   clerkBackend: "auto",
   deepseekApiKey: "",
   deepseekModel: "deepseek-chat",
-  autoTriage: true,
+  autoTriage: false,
   auditEnabled: true,
   workerLowPriority: true,
   launchAtLogin: false,
