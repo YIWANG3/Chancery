@@ -11,6 +11,8 @@ describe("explainReplyError", () => {
     expect(explainReplyError("codex", "Codex app is not running", "en")).toBe("the Codex app is not open; nothing was sent.");
     expect(explainReplyError("claude", "Claude Desktop did not switch to the session; nothing was sent", "en")).toBe("Claude Desktop did not switch to this session; nothing was sent.");
     expect(explainReplyError("claude", "this process is not trusted for Accessibility")).toContain("辅助功能");
+    expect(explainReplyError("claude", "this process is not trusted for Accessibility")).toContain("「Chancery」");
+    expect(explainReplyError("claude", 'this process is not trusted for Accessibility; macOS asks it of "Electron"')).toContain("「Electron」没有辅助功能权限");
     expect(explainReplyError("claude", "several composers are open (split view); nothing was sent")).toContain("分屏");
   });
   it("is honest when Send was pressed but the outcome is unclear", () => {

@@ -454,3 +454,89 @@ test("新建会话：在会话页选一家、选它侧栏里的项目、写第�
   const thread = win.getByRole("listitem").filter({ hasText: "对照一下两家的线程模型" });
   await expect(thread.getByText("运行中")).toBeVisible({ timeout: 30_000 });
 });
+
+test("浮窗的样式和位置：设置里换成透明，浮窗就没有底；换到顶部是贴着屏幕上沿的一块，鼠标移上去才展开", async ({ app, win }) => {
+  const findFloat = () => app.windows().find((w) => !w.isClosed() && w.url().includes("#/float"));
+  const look = () => findFloat()?.evaluate(() => document.documentElement.className) ?? null;
+  await win.getByRole("button", { name: "设置", exact: true }).click();
+  await win.getByRole("radio", { name: "透明" }).click();
+  // Changing how the float looks brings it up beside the settings, as a preview; leaving the page puts it away.
+  const floatShown = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.webContents.getURL().includes("#/float") && w.isVisible()));
+  await expect.poll(floatShown).toBe(true);
+  await expect.poll(look).toBe("glass clear");
+  expect(await win.evaluate(() => document.visibilityState)).toBe("visible");
+  await win.getByRole("button", { name: "会话", exact: true }).click();
+  await expect.poll(floatShown).toBe(false);
+  await win.getByRole("button", { name: "最小化到浮窗" }).click();
+  // A window made for the style: nothing behind the page, which then paints no background of its own.
+  await expect.poll(look, { timeout: 30_000 }).toBe("glass clear");
+  expect(findFloat()!.url()).toContain("look=clear");
+  // Not nothing at all by default: a dark sheet behind the text, as thick as the setting says.
+  const sheet = () => findFloat()?.evaluate(() => getComputedStyle(document.getElementById("root")!).backgroundColor) ?? null;
+  expect(await sheet()).toBe("rgba(0, 0, 0, 0.5)");
+  await win.evaluate(() => window.chancery.invoke("settings:set", { floatOpacity: 20 }));
+  await expect.poll(sheet).toBe("rgba(0, 0, 0, 0.2)");
+  await expect(findFloat()!.getByRole("list", { name: "浮窗里的会话" })).toBeVisible();
+
+  // Changed while the float is up, the window is made again in place: still shown, the main window still away.
+  // Asked from the main window's page: the float's own window is the one that goes away.
+  await win.evaluate(() => window.chancery.invoke("settings:set", { floatStyle: "solid" }));
+  await expect.poll(look).toBe("");
+  expect(await win.evaluate(() => window.chancery.invoke("float:visible"))).toBe(true);
+
+  // The other place: the top of the display being worked on. On a display with a camera housing the shape is the
+  // housing's size; on any other a stand-in is, and either way it is driven the same.
+  const settings = (patch: Record<string, string>) => win.evaluate((p) => window.chancery.invoke("settings:set", p), patch) as Promise<{ floatPlaces: string[] }>;
+  const { floatPlaces } = await settings({ floatPlace: "top" });
+  if (floatPlaces.includes("top")) {
+    await expect.poll(look).toBe("notch");
+    expect(await win.evaluate(() => window.chancery.invoke("float:visible"))).toBe(true);
+    const float = findFloat()!;
+    const shape = float.getByRole("region", { name: "浮窗里的会话" });
+    // What is drawn: the outline's bottom edge, read off the clip that cuts the shape out of its sheet.
+    const height = (of = shape) => of.evaluate((el) => Number(/Q [\d.]+ ([\d.]+) [\d.]+ \1 L/.exec(el.style.clipPath)?.[1] ?? 0));
+    // The sheet is as tall as the window; the shape is at the top of it, in the middle. The pointer is moved by
+    // hand, since what is under it there may be the shape or only the place the shape comes out of.
+    const box = (await shape.boundingBox())!;
+    const onHousing = [box.x + box.width / 2, 10] as const;
+    const housing = Number(new URL(float.url().replace("#/float?", "?")).searchParams.get("nh"));
+    expect(housing).toBeGreaterThan(0);
+    // At rest it is as tall as the housing, holding the counts, with no list to reach.
+    await expect(shape).toHaveAttribute("data-state", "rest");
+    await expect.poll(height).toBe(housing);
+    await expect(shape.getByTitle("待看 1")).toBeVisible();
+    await expect(shape.getByRole("listitem")).toHaveCount(0);
+    await float.mouse.move(...onHousing);
+    await expect(shape.getByRole("listitem").first()).toBeVisible();
+    await expect.poll(height).toBeGreaterThan(housing + 60);
+    await float.mouse.move(2, 600);
+    await expect(shape).toHaveAttribute("data-state", "rest");
+    await expect.poll(height).toBe(housing);
+
+    // Asked to stay out of sight and open on a click: no counts at rest, and the pointer alone opens nothing.
+    await settings({ notchRest: "hidden", notchOpen: "click" });
+    await expect.poll(() => findFloat()?.url() ?? "").toContain("rest=hidden&corners=round&open=click");
+    const quiet = findFloat()!;
+    const hidden = quiet.getByRole("region", { name: "浮窗里的会话" });
+    await expect(hidden.getByTitle("待看 1")).toHaveCount(0);
+    await quiet.mouse.move(...onHousing);
+    await quiet.waitForTimeout(400);
+    await expect(hidden).toHaveAttribute("data-state", "rest");
+    await quiet.mouse.click(...onHousing);
+    await expect(hidden.getByRole("listitem").first()).toBeVisible();
+    await settings({ notchRest: "counts", notchOpen: "hover" });
+
+    // On every display: one window each, and back to one when the float returns to the corner.
+    const floats = () => app.evaluate(({ BrowserWindow, screen }) => ({ shown: BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().includes("#/float") && w.isVisible()).length, displays: screen.getAllDisplays().length }));
+    await settings({ notchDisplay: "all" });
+    await expect.poll(async () => (await floats()).shown === (await floats()).displays).toBe(true);
+    await settings({ notchDisplay: "active" });
+    await expect.poll(async () => (await floats()).shown).toBe(1);
+  }
+
+  await settings({ floatPlace: "corner", floatStyle: "glass" });
+  await expect.poll(look).not.toBe("notch");
+  await expect.poll(async () => (await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().includes("#/float") && w.isVisible()).length))).toBe(1);
+  await win.evaluate(() => window.chancery.invoke("main:show"));
+  await expect.poll(() => win.evaluate(() => window.chancery.invoke("float:visible"))).toBe(false);
+});

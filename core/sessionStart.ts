@@ -12,7 +12,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { SessionApp } from "./overview.js";
-import { axctl, inTurn } from "./sessionReply.js";
+import { axAskedOf, axctl, inTurn } from "./sessionReply.js";
 import { run } from "./util/run.js";
 import { t, type Lang } from "./i18n/index.js";
 
@@ -63,7 +63,7 @@ export interface StartProjects {
 /** Why the sidebar could not be read, for the person. */
 export function listProblem(app: SessionApp, raw: string, lang: Lang = "zh"): StartProblem {
   const name = appName(app, lang);
-  if (/not trusted for Accessibility/.test(raw)) return { kind: "no-ax", text: t(lang, "start.listNoAx", { app: name }) };
+  if (/not trusted for Accessibility/.test(raw)) return { kind: "no-ax", text: t(lang, "start.listNoAx", { app: name, self: axAskedOf(raw) }) };
   if (/is not running|has no window/.test(raw)) return { kind: "not-running", text: t(lang, "start.listNotRunning", { app: name }) };
   return { kind: "failed", text: t(lang, "start.listFailed", { app: name, raw }) };
 }
@@ -71,7 +71,7 @@ export function listProblem(app: SessionApp, raw: string, lang: Lang = "zh"): St
 /** Why no conversation was started, for the person. Every one of axctl's refusals here comes before Send. */
 export function explainStartError(target: Pick<StartTarget, "app" | "project">, raw: string, lang: Lang = "zh"): string {
   const name = appName(target.app, lang);
-  if (/not trusted for Accessibility/.test(raw)) return t(lang, "reply.noAx");
+  if (/not trusted for Accessibility/.test(raw)) return t(lang, "reply.noAx", { self: axAskedOf(raw) });
   if (/is not running|has no window/.test(raw)) return t(lang, "reply.notRunning", { app: name });
   if (/^no 'New session in |^no 'Start new chat in /.test(raw)) return t(lang, "start.noProject", { app: name, project: target.project });
   if (/no Worktree checkbox/.test(raw)) return t(lang, "start.noWorktree");

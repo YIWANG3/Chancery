@@ -38,6 +38,8 @@ export interface NotifierDeps {
 
 export interface Notifier {
   notify(notice: Notice): void;
+  /** Makes the panel's window again, for a change of style; what it was showing stays. */
+  remakePanel(): void;
 }
 
 const PANEL_WIDTH = 360;
@@ -65,9 +67,10 @@ export function createNotifier(deps: NotifierDeps): Notifier {
       return;
     }
     if (!panel || panel.isDestroyed()) {
-      panel = deps.createPanel();
-      panel.on("closed", () => {
-        panel = null;
+      const made = deps.createPanel();
+      panel = made;
+      made.on("closed", () => {
+        if (panel === made) panel = null;
       });
     }
     const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
@@ -104,6 +107,12 @@ export function createNotifier(deps: NotifierDeps): Notifier {
   ipcMain.handle("notices:dismiss", (_ev, { id }: { id: number }) => void remove(id));
 
   return {
+    remakePanel() {
+      const old = panel;
+      panel = null;
+      if (old && !old.isDestroyed()) old.destroy();
+      if (items.length) layout();
+    },
     notify(n) {
       if (systemRefused || !Notification.isSupported()) return toPanel(n);
       const native = new Notification({ title: n.title, subtitle: n.subtitle, body: n.body });

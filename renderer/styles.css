@@ -87,6 +87,54 @@
   }
 }
 
+/*
+  The two floating looks that are light text on something dark whatever the system's theme is: `clear` because
+  white letters with a dark halo are the only text that reads on any backdrop, `notch` because it is black.
+*/
+:root.clear,
+:root.notch {
+  --app-bg: 0 0 0;
+  --panel-bg: 0 0 0;
+  --fill: 255 255 255;
+  --fill-1: 0.1;
+  --fill-2: 0.16;
+  --raised-bg: 255 255 255;
+  --raised-alpha: 0.16;
+  --line-color: 44 44 44;
+  --muted-text: 160 160 160;
+  --text-color: 240 240 240;
+  --inverse-bg: 238 238 238;
+  --inverse-text: 0 0 0;
+  --accent-color: 76 179 255;
+  --success-color: 128 201 51;
+  --warn-color: 255 190 69;
+  --error-color: 233 83 80;
+  color-scheme: dark;
+}
+
+/*
+  A floating window with nothing behind its page (`clear`, set together with `glass`): no blur, so what it covers
+  shows through sharp. The veil is a black sheet whose thickness the person sets (renderer/look.ts writes
+  --glass-veil; it may be none at all), so every letter and icon also carries its own dark halo; muted text is
+  nearly as bright as the rest and the fills are stronger, since there may be nothing to sink into.
+*/
+:root.clear {
+  --text-color: 255 255 255;
+  --muted-text: 228 228 228;
+  --fill-1: 0.16;
+  --fill-2: 0.26;
+}
+:root.clear #root {
+  text-shadow:
+    0 0 2px rgb(0 0 0 / 0.9),
+    0 1px 3px rgb(0 0 0 / 0.7),
+    0 0 10px rgb(0 0 0 / 0.45);
+}
+:root.clear #root svg,
+:root.clear #root .rounded-full {
+  filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 0.8)) drop-shadow(0 1px 3px rgb(0 0 0 / 0.5));
+}
+
 /* The root stays at 16px so Tailwind's rem scale means what it says (h-9 = 36px); body text is 14px. */
 html {
   font-size: 16px;
@@ -106,7 +154,10 @@ body {
   font-size: 14px;
 }
 :root.glass,
-:root.glass body {
+:root.glass body,
+:root.notch,
+:root.notch body,
+:root.notch #root {
   background: transparent;
 }
 :root.glass #root {

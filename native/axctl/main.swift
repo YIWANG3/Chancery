@@ -2,7 +2,7 @@
 // activating it. Built by scripts/build-native.sh into native/bin/axctl. The executor calls it;
 // every result is one JSON object on stdout.
 //
-//   axctl trusted [--prompt]          {"trusted":bool}
+//   axctl trusted [--prompt]          {"trusted":bool,"askedOf":"the app the permission is held against"}
 //   axctl probe                        projects the sidebar offers, composer state, usage
 //   axctl usage                        {"usage":"Weekly · Fable: 45%, …","pct":45}
 //   axctl new-session --project NAME --prompt-file PATH [--worktree | --no-worktree] [--wait SECONDS]
@@ -60,6 +60,31 @@ func walk(_ el: AXUIElement, _ depth: Int, _ out: inout [Node], _ budget: inout 
 func fail(_ code: Int32, _ message: String) -> Never {
   print("{\"ok\":false,\"error\":\(jsonString(message))}")
   exit(code)
+}
+
+/// The app macOS holds this process's Accessibility permission against, as the list in System Settings names it.
+/// That is rarely this helper: it is whichever app the system considers responsible for it, which is the app that
+/// was opened (Chancery, or plain "Electron" for a development copy opened from the Finder or by launchd), or the
+/// terminal's app when the copy was started from a shell. Naming it is the difference between a message the person
+/// can act on and one that sends them to the wrong row. The system has no public call for this; the one it uses
+/// itself is looked up at run time, so where it is missing only the name is lost.
+func askedOf() -> String? {
+  typealias Responsible = @convention(c) (pid_t) -> pid_t
+  guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid") else { return nil }
+  let pid = unsafeBitCast(symbol, to: Responsible.self)(getpid())
+  guard pid > 0 else { return nil }
+  if let name = NSRunningApplication(processIdentifier: pid)?.localizedName, !name.isEmpty { return name }
+  // Not an app (a command-line tool that started the chain): the list shows the name of its executable.
+  var path = [CChar](repeating: 0, count: 4096)
+  guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
+  let url = URL(fileURLWithPath: String(cString: path))
+  if let bundle = url.pathComponents.last(where: { $0.hasSuffix(".app") }) { return String(bundle.dropLast(4)) }
+  return url.lastPathComponent
+}
+
+/// The one refusal every command shares. The sentence up to the semicolon is what callers match on.
+func notTrusted() -> Never {
+  fail(2, "this process is not trusted for Accessibility" + (askedOf().map { "; macOS asks it of \"\($0)\"" } ?? ""))
 }
 
 func jsonString(_ s: String) -> String {
@@ -225,10 +250,12 @@ let command = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "help
 switch command {
 case "trusted":
   let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: flags.contains("--prompt")] as CFDictionary
-  emit(["ok": true, "trusted": AXIsProcessTrustedWithOptions(opts)])
+  var answer: [String: Any] = ["ok": true, "trusted": AXIsProcessTrustedWithOptions(opts)]
+  if let name = askedOf() { answer["askedOf"] = name }
+  emit(answer)
 
 case "probe", "usage":
-  if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
+  if !AXIsProcessTrusted() { notTrusted() }
   let app = claudeApp()
   Thread.sleep(forTimeInterval: 2.0)
   // A query can find a bare shell of a tree (nothing at all, or a window and a few empty groups) or one that is
@@ -252,7 +279,7 @@ case "probe", "usage":
   }
 
 case "new-session":
-  if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
+  if !AXIsProcessTrusted() { notTrusted() }
   guard let project = arg("--project"), let promptFile = arg("--prompt-file") else { fail(1, "usage: new-session --project NAME --prompt-file PATH [--worktree | --no-worktree] [--wait SECONDS]") }
   guard let prompt = try? String(contentsOfFile: promptFile, encoding: .utf8), !prompt.isEmpty else { fail(1, "prompt file unreadable or empty") }
   let wait = Double(arg("--wait") ?? "8") ?? 8
@@ -302,7 +329,7 @@ case "new-session":
 
 case "reply":
   // Claude Desktop: link to the session → the page address must end in that session's id → composer → Send.
-  if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
+  if !AXIsProcessTrusted() { notTrusted() }
   guard let session = arg("--session"), let promptFile = arg("--prompt-file") else { fail(1, "usage: reply --session local_ID --prompt-file PATH [--wait SECONDS] [--stay]") }
   if session.range(of: "^local_[A-Za-z0-9-]{1,64}$", options: .regularExpression) == nil { fail(1, "not a desktop session id") }
   guard let prompt = try? String(contentsOfFile: promptFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty else { fail(1, "prompt file unreadable or empty") }
@@ -379,7 +406,7 @@ case "codex-reply":
   // Codex app: link to the thread → the window's title must be the thread's → composer → Send. The page address
   // says nothing about the thread, so the title is the only thing to check here; the caller confirms afterwards
   // from Codex's own database that this thread, and not another one of the same name, started a turn.
-  if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
+  if !AXIsProcessTrusted() { notTrusted() }
   guard let thread = arg("--thread"), let title = arg("--title"), let promptFile = arg("--prompt-file") else { fail(1, "usage: codex-reply --thread ID --title TITLE --prompt-file PATH [--wait SECONDS]") }
   if thread.range(of: "^[0-9a-fA-F-]{36}$", options: .regularExpression) == nil { fail(1, "not a thread id") }
   guard let prompt = try? String(contentsOfFile: promptFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty else { fail(1, "prompt file unreadable or empty") }
@@ -441,14 +468,14 @@ case "codex-reply":
 case "codex-clear":
   // Recovery: empties the Codex composer if it holds text starting with the given file's text. For a send that
   // left its text behind.
-  if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
+  if !AXIsProcessTrusted() { notTrusted() }
   guard let file = arg("--text-file"), let t = try? String(contentsOfFile: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { fail(1, "usage: codex-clear --text-file PATH") }
   let app = appElement(codexBundleId, "Codex app")
   Thread.sleep(forTimeInterval: 1.0)
   emit(["ok": true, "composerEmpty": codexClearComposer(app, head: String(t.prefix(12)))])
 
 case "codex-probe":
-  if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
+  if !AXIsProcessTrusted() { notTrusted() }
   let app = appElement(codexBundleId, "Codex app")
   Thread.sleep(forTimeInterval: 1.5)
   let nodes = codexSnapshot(app)
@@ -460,7 +487,7 @@ case "codex-probe":
 
 case "codex-new-chat":
   // Codex app: sidebar "Start new chat in <folder>" → composer (AXTextArea "Work with ChatGPT") → Send.
-  if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
+  if !AXIsProcessTrusted() { notTrusted() }
   guard let project = arg("--project"), let promptFile = arg("--prompt-file") else { fail(1, "usage: codex-new-chat --project NAME --prompt-file PATH [--wait SECONDS]") }
   guard let prompt = try? String(contentsOfFile: promptFile, encoding: .utf8), !prompt.isEmpty else { fail(1, "prompt file unreadable or empty") }
   let wait = Double(arg("--wait") ?? "8") ?? 8
@@ -513,7 +540,7 @@ case "codex-new-chat":
 case "dump":
   // Development aid: prints the accessibility tree of one app, one node per line, for working out selectors.
   //   axctl dump --app claude|codex [--grep TEXT]
-  if !AXIsProcessTrusted() { fail(2, "this process is not trusted for Accessibility") }
+  if !AXIsProcessTrusted() { notTrusted() }
   let which = arg("--app") ?? "claude"
   let app = which == "codex" ? appElement(codexBundleId, "Codex app") : claudeApp()
   Thread.sleep(forTimeInterval: 1.5)

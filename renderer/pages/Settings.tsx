@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { LangPref } from "@core/i18n";
 import { api, type AppSettings, type AxStatus, type ThemePref } from "../api";
 import { setLang, useT, type T } from "../i18n";
-import { Button, Segmented, Select, SettingGroup, SettingRow, Switch } from "../ui";
+import { Button, Segmented, Select, SettingGroup, SettingRow, Slider, Switch } from "../ui";
 
 type Opt<T extends string> = { value: T; label: string };
 
@@ -42,13 +42,20 @@ const clerks = (t: T): Opt<AppSettings["clerkBackend"]>[] => [
   { value: "claude", label: "Claude" },
 ];
 
+/** The settings that change how the float looks or where it is: changing one shows the float as a preview. */
+const FLOAT_LOOK: Array<keyof AppSettings> = ["floatPlace", "floatStyle", "floatOpacity", "notchDisplay", "notchRest", "notchOpen", "notchCorners"];
+
 export function SettingsPage() {
   const t = useT();
   const [s, setS] = useState<AppSettings | null>(null);
   const [ax, setAx] = useState<AxStatus | null>(null);
+  /** The backing opacity while its slider is being dragged; null when it is the saved one that shows. */
+  const [opacity, setOpacity] = useState<number | null>(null);
   useEffect(() => {
     void api.settings.get().then(setS);
     void api.ax.status().then(setAx);
+    // Leaving the page ends the float's preview, if a change here started one.
+    return () => void api.float.preview(false);
   }, []);
   if (!s) return null;
 
@@ -56,6 +63,8 @@ export function SettingsPage() {
   /** Every control saves on its own; text fields commit on blur or Enter. */
   const set = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     if (s[key] === value) return;
+    // A change to how the float looks or where it is brings the float up, so the change is seen as it is made.
+    if (FLOAT_LOOK.includes(key)) void api.float.preview(true);
     const next = await api.settings.set({ [key]: value } as Partial<AppSettings>);
     setS(next);
     // The main process tells every window; this one takes the new language at once, without the round trip.
@@ -81,6 +90,48 @@ export function SettingsPage() {
         <SettingRow title={t("settings.sessionAlerts")} description={t("settings.sessionAlertsHint")}>
           {toggle("sessionAlerts", t("settings.sessionAlerts"))}
         </SettingRow>
+        <SettingRow title={t("settings.floatPlace")} description={t("settings.floatPlaceHint")}>
+          <Segmented value={s.floatPlace} onChange={(v) => void set("floatPlace", v)} options={s.floatPlaces.map((value) => ({ value, label: t(`floatPlace.${value}`) }))} />
+        </SettingRow>
+        {/* Each place has its own choices; only the ones for the place the float is in are shown. */}
+        {s.floatPlace === "top" && s.floatPlaces.includes("top") ? (
+          <>
+            <SettingRow title={t("settings.notchDisplay")} description={t("settings.notchDisplayHint")} wide>
+              <Segmented value={s.notchDisplay} onChange={(v) => void set("notchDisplay", v)} options={(["active", "all", "builtin"] as const).map((value) => ({ value, label: t(`notchDisplay.${value}`) }))} />
+            </SettingRow>
+            <SettingRow title={t("settings.notchRest")} description={t("settings.notchRestHint")}>
+              <Segmented value={s.notchRest} onChange={(v) => void set("notchRest", v)} options={(["counts", "hidden"] as const).map((value) => ({ value, label: t(`notchRest.${value}`) }))} />
+            </SettingRow>
+            <SettingRow title={t("settings.notchOpen")} description={t("settings.notchOpenHint")}>
+              <Segmented value={s.notchOpen} onChange={(v) => void set("notchOpen", v)} options={(["hover", "click"] as const).map((value) => ({ value, label: t(`notchOpen.${value}`) }))} />
+            </SettingRow>
+            <SettingRow title={t("settings.notchCorners")} description={t("settings.notchCornersHint")}>
+              <Segmented value={s.notchCorners} onChange={(v) => void set("notchCorners", v)} options={(["round", "tight"] as const).map((value) => ({ value, label: t(`notchCorners.${value}`) }))} />
+            </SettingRow>
+          </>
+        ) : (
+          <>
+            <SettingRow title={t("settings.floatStyle")} description={t("settings.floatStyleHint")} wide>
+              <Segmented value={s.floatStyle} onChange={(v) => void set("floatStyle", v)} options={s.floatStyles.map((value) => ({ value, label: t(`floatStyle.${value}`) }))} />
+            </SettingRow>
+            {s.floatStyle === "clear" && (
+              <SettingRow title={t("settings.floatOpacity")} description={t("settings.floatOpacityHint")}>
+                {/* Saved as it is dragged: the float, up beside this window, follows the slider. */}
+                <Slider
+                  ariaLabel={t("settings.floatOpacity")}
+                  value={opacity ?? s.floatOpacity}
+                  step={5}
+                  format={(v) => `${v}%`}
+                  onChange={(v) => {
+                    setOpacity(v);
+                    void set("floatOpacity", v);
+                  }}
+                  onCommit={() => setOpacity(null)}
+                />
+              </SettingRow>
+            )}
+          </>
+        )}
         <SettingRow title={t("settings.floatOnStart")} description={t("settings.floatOnStartHint")}>
           {toggle("floatOnStart", t("settings.floatOnStart"))}
         </SettingRow>
@@ -180,7 +231,7 @@ export function SettingsPage() {
 function axDescription(t: T, ax: AxStatus | null): ReactNode {
   if (!ax) return t("settings.axChecking");
   if (!ax.available) return <span className="text-error">{t("settings.axUnavailable", { error: ax.error ?? "" })}</span>;
-  if (!ax.trusted) return <span className="text-warn">{t("settings.axNotTrusted")}</span>;
+  if (!ax.trusted) return <span className="text-warn">{t("settings.axNotTrusted", { self: ax.askedOf ?? "Chancery" })}</span>;
   if (ax.probe && !ax.probe.ok) return <span className="text-warn">{t("settings.axProbeFailed", { error: ax.probe.error ?? "" })}</span>;
   return `${t("settings.axOk", { n: ax.probe?.projects?.length ?? 0 })}${ax.probe?.composer?.usage ? ` · ${t("settings.axUsage", { usage: ax.probe.composer.usage })}` : ""}`;
 }

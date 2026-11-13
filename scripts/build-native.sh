@@ -21,7 +21,7 @@ if [[ -z "$only" || "$only" == glass ]]; then
   include="$(node -p 'require("node:path").resolve(process.execPath, "..", "..", "include", "node")')"
   for arch in arm64 x86_64; do
     xcrun clang++ -arch "$arch" -mmacosx-version-min=14.0 -O2 -fobjc-arc -std=c++17 -bundle -undefined dynamic_lookup \
-      -I "$include" -framework AppKit -o "native/bin/glass.$arch.node" native/glass/glass.mm
+      -I "$include" -framework AppKit -framework ApplicationServices -o "native/bin/glass.$arch.node" native/glass/glass.mm
   done
   lipo -create -output native/bin/glass.node native/bin/glass.arm64.node native/bin/glass.x86_64.node
   rm native/bin/glass.arm64.node native/bin/glass.x86_64.node

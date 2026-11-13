@@ -5,6 +5,18 @@ import { dirname, join } from "node:path";
 import type { LangPref } from "../core/i18n/index.js";
 
 export type ThemePref = "system" | "light" | "dark";
+/**
+ * Where the floating window is; it is in one place at a time. `corner`: a small window of its own, top right until
+ * it is dragged elsewhere. `top`: a black shape hung from the middle of the display's top edge, out of the camera
+ * housing (the notch) where the display has one, opening when the pointer is on it.
+ */
+export type FloatPlace = "corner" | "top";
+/**
+ * What the window in the corner stands on. `glass`: Liquid Glass, blurred (macOS 26). `clear`: nothing at all,
+ * what is behind shows through sharp. `solid`: the app's own panel. One that this machine cannot do comes out as
+ * the nearest it can. The notice panel takes the same.
+ */
+export type FloatStyle = "glass" | "clear" | "solid";
 
 export interface Settings {
   /** 外观：跟随系统 / 浅色 / 深色；applied through nativeTheme.themeSource so the renderer only needs prefers-color-scheme. */
@@ -43,6 +55,19 @@ export interface Settings {
   floatOnStart: boolean;
   /** Where the floating window was last left; null until it has been moved. */
   floatPosition: { x: number; y: number } | null;
+  floatPlace: FloatPlace;
+  floatStyle: FloatStyle;
+  /** For the `clear` style: how dark the sheet behind the text is, in percent. 0 is nothing at all behind it; the
+   *  more there is, the easier the text is to read over a busy desktop. */
+  floatOpacity: number;
+  /** At the top, which displays: the one being worked on (it follows), every one, or only the built-in one. */
+  notchDisplay: "active" | "all" | "builtin";
+  /** The notch form at rest: the counts on either side of the housing, or nothing until the pointer is on it. */
+  notchRest: "counts" | "hidden";
+  /** Its corners when open: grown with it, or the small ones it has at rest. */
+  notchCorners: "round" | "tight";
+  /** What opens it: the pointer resting on it, or a click. */
+  notchOpen: "hover" | "click";
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -72,6 +97,13 @@ export const DEFAULT_SETTINGS: Settings = {
   sessionAlerts: true,
   floatOnStart: false,
   floatPosition: null,
+  floatPlace: "corner",
+  floatStyle: "glass",
+  floatOpacity: 50,
+  notchDisplay: "active",
+  notchRest: "counts",
+  notchCorners: "round",
+  notchOpen: "hover",
 };
 
 export function loadSettings(path: string): Settings {

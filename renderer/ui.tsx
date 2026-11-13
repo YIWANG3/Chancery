@@ -249,6 +249,29 @@ export function Menu<T extends string>({ value, options, onChange, ariaLabel, pl
   );
 }
 
+/** A value picked along a line, with the value said beside it. It reports while it is dragged (`onChange`) and once
+ *  when it is let go (`onCommit`), for a setting that is costly to apply. */
+export function Slider({ value, min = 0, max = 100, step = 1, onChange, onCommit, ariaLabel, format = String, className }: { value: number; min?: number; max?: number; step?: number; onChange: (v: number) => void; onCommit?: (v: number) => void; ariaLabel: string; format?: (v: number) => string; className?: string }) {
+  return (
+    <span className={cn("inline-flex w-full items-center gap-3", className)}>
+      <input
+        type="range"
+        aria-label={ariaLabel}
+        aria-valuetext={format(value)}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onPointerUp={(e) => onCommit?.(Number(e.currentTarget.value))}
+        onKeyUp={(e) => onCommit?.(Number(e.currentTarget.value))}
+        className="no-drag h-4 min-h-0 min-w-0 flex-1 cursor-pointer bg-transparent p-0 accent-[rgb(var(--inverse-bg))] hover:bg-transparent"
+      />
+      <span className="w-10 shrink-0 text-right text-[13px] tabular-nums text-muted">{format(value)}</span>
+    </span>
+  );
+}
+
 /** One settings row: title and a one-line explanation on the left, the control on the right. Rows in a group are
  *  separated by lines so every row has the same rhythm whatever its control is. */
 export function SettingRow({ title, description, children, wide, stacked }: { title: ReactNode; description?: ReactNode; children?: ReactNode; wide?: boolean; stacked?: boolean }) {

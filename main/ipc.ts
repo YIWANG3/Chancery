@@ -3,7 +3,7 @@ import type { Daemon, Repo, TicketStatus } from "../core/index.js";
 import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, listStartProjects, replyToSession, sessionOpenFor, startSession, t, type Lang, type Overview, type ReplyTarget, type SessionApp, type SessionOpen, type StartProjects, type StartTarget } from "../core/index.js";
 import { run } from "../core/util/run.js";
 import { openSession } from "./openSession.js";
-import type { Settings } from "./settings.js";
+import type { FloatPlace, FloatStyle, Settings } from "./settings.js";
 
 export interface IpcDeps {
   repo: Repo;
@@ -15,6 +15,9 @@ export interface IpcDeps {
   worktreeRoot: () => string;
   pgInfo: () => { embedded: boolean; connectionString: string };
   axctlPath: string;
+  /** The floating-window styles this machine can show, and the places it can be. */
+  floatStyles: () => FloatStyle[];
+  floatPlaces: () => FloatPlace[];
   log: (msg: string) => void;
   showMain: () => void;
   /** The session watch's newest snapshot of both apps' sessions. */
@@ -112,13 +115,14 @@ export function registerIpc(deps: IpcDeps): void {
   h<{ prompt?: boolean } | undefined, unknown>("ax:status", async (p) => {
     try {
       const { stdout } = await run(deps.axctlPath, ["trusted", ...(p?.prompt ? ["--prompt"] : [])], { timeoutMs: 10_000 });
-      const trusted = (JSON.parse(stdout) as { trusted: boolean }).trusted;
+      const { trusted, askedOf } = JSON.parse(stdout) as { trusted: boolean; askedOf?: string };
       let probe: unknown = null;
       if (trusted) {
         const r = await run(deps.axctlPath, ["probe"], { timeoutMs: 20_000 }).catch((err) => ({ stdout: JSON.stringify({ ok: false, error: String(err) }) }));
         probe = JSON.parse(r.stdout);
       }
-      return { available: true, trusted, probe };
+      // `askedOf` is the app the permission is held against, which is the row to turn on (core/sessionReply.ts).
+      return { available: true, trusted, askedOf: askedOf ?? "Chancery", probe };
     } catch (err) {
       return { available: false, trusted: false, error: err instanceof Error ? err.message : String(err) };
     }
@@ -130,8 +134,9 @@ export function registerIpc(deps: IpcDeps): void {
     await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility");
   });
 
-  // Both answers carry the same extras: where the database is, and which language the setting comes out as.
-  const withExtras = (s: Settings) => ({ ...s, pg: deps.pgInfo(), lang: deps.lang() });
+  // Both answers carry the same extras: where the database is, which language the setting comes out as, and which
+  // floating-window styles and places this machine can show.
+  const withExtras = (s: Settings) => ({ ...s, pg: deps.pgInfo(), lang: deps.lang(), floatStyles: deps.floatStyles(), floatPlaces: deps.floatPlaces() });
   h("settings:get", () => withExtras(deps.settings()));
   h<Partial<Settings>, unknown>("settings:set", (patch) => {
     const next = { ...deps.settings(), ...patch };

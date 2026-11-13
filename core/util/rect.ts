@@ -5,6 +5,12 @@ export interface Rect {
   height: number;
 }
 
+/** A rectangle of this size hung from the middle of `area`'s top edge: where a window that grows out of a display's
+ *  camera housing goes. */
+export function hungFromTop(size: { width: number; height: number }, area: Rect): Rect {
+  return { x: area.x + Math.round((area.width - size.width) / 2), y: area.y, ...size };
+}
+
 /**
  * The same rectangle, moved (never resized) so that it lies inside `area` with `margin` to spare on every side.
  * A rectangle wider or taller than the area ends up flush with the area's left or top edge. Used to keep floating

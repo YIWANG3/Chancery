@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepInside } from "./rect.js";
+import { hungFromTop, keepInside } from "./rect.js";
 
 const screen = { x: 0, y: 25, width: 1440, height: 875 };
 
@@ -20,5 +20,12 @@ describe("keepInside", () => {
 
   it("keeps the left and top edges visible when the window is larger than the area", () => {
     expect(keepInside({ x: 500, y: 500, width: 2000, height: 2000 }, screen, 16)).toEqual({ x: 16, y: 41, width: 2000, height: 2000 });
+  });
+});
+
+describe("hungFromTop", () => {
+  it("centres on the top edge of the area, wherever the area is", () => {
+    expect(hungFromTop({ width: 520, height: 672 }, { x: 0, y: 0, width: 1512, height: 982 })).toEqual({ x: 496, y: 0, width: 520, height: 672 });
+    expect(hungFromTop({ width: 520, height: 672 }, { x: -1512, y: 200, width: 1512, height: 982 })).toEqual({ x: -1016, y: 200, width: 520, height: 672 });
   });
 });

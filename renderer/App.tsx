@@ -7,6 +7,8 @@ import { Projects } from "./pages/Projects";
 import { Capture } from "./pages/Capture";
 import { Notices } from "./pages/Notices";
 import { Float } from "./pages/Float";
+import { NotchFloat } from "./pages/FloatNotch";
+import { LOOK } from "./look";
 import { Agents } from "./pages/Agents";
 import { SettingsPage } from "./pages/Settings";
 import { heldUpSessions } from "@core/sessionAlerts";
@@ -45,7 +47,7 @@ export function App() {
   const [route, go] = useRoute();
   if (route.startsWith("/capture")) return <Capture />;
   if (route.startsWith("/notices")) return <Notices />;
-  if (route.startsWith("/float")) return <Float />;
+  if (route.startsWith("/float")) return LOOK === "notch" ? <NotchFloat /> : <Float />;
   const raw = route.split("?")[0] ?? HOME;
   const page = raw === "/board" || raw === "/inbox" ? "/tickets" : raw;
   const titleKey = NAV.find((n) => n.route === page)?.label ?? HIDDEN_TITLE[page];

@@ -29,6 +29,16 @@ export interface ReplyOptions {
 /** How long to wait for Codex's own database to show the new turn before calling the send unconfirmed. */
 const CODEX_CONFIRM_MS = 15_000;
 
+/**
+ * The app the Accessibility permission has to be given to, as axctl's refusal names it: the row to turn on in System
+ * Settings. It is the app macOS holds responsible for this one, so "Chancery" for the packaged app but "Electron"
+ * for a development copy, or the terminal's app for one started from a shell. Where axctl could not say, the app's
+ * own name is the best there is.
+ */
+export function axAskedOf(raw: string): string {
+  return /not trusted for Accessibility; macOS asks it of "(.+?)"/.exec(raw)?.[1] ?? "Chancery";
+}
+
 /** Turns what axctl said into something a person can act on. axctl's messages are stable English sentences. */
 export function explainReplyError(app: SessionApp, raw: string, lang: Lang = "zh"): string {
   const name = t(lang, app === "claude" ? "common.claudeDesktop" : "common.codexApp");
@@ -43,7 +53,7 @@ export function explainReplyError(app: SessionApp, raw: string, lang: Lang = "zh
     [/composer still holds the text/, "reply.textLeft"],
     [/no title cannot be told apart/, "reply.noTitle"],
   ];
-  for (const [re, key] of rules) if (re.test(raw)) return t(lang, key, { app: name });
+  for (const [re, key] of rules) if (re.test(raw)) return t(lang, key, { app: name, self: axAskedOf(raw) });
   return t(lang, "reply.notSent", { raw });
 }
 

@@ -64,6 +64,13 @@ describe("listStartProjects", () => {
     expect(noAx.projects).toEqual(guessed);
     expect(noAx.problem?.kind).toBe("no-ax");
     expect(noAx.problem?.text).toContain("系统设置 → 隐私与安全性 → 辅助功能");
+    // The row to turn on is the app macOS holds the permission against, which a development copy is not.
+    expect(noAx.problem?.text).toContain("「Chancery」没有辅助功能权限");
+    answer({ ok: false, error: 'this process is not trusted for Accessibility; macOS asks it of "Electron"' });
+    const asDev = await listStartProjects("claude", known, { axctlPath: fake });
+    expect(asDev.problem?.kind).toBe("no-ax");
+    expect(asDev.problem?.text).toContain("「Electron」没有辅助功能权限");
+    expect(asDev.problem?.text).not.toContain("Chancery");
     answer({ ok: false, error: "Codex app is not running" });
     expect((await listStartProjects("codex", known, { axctlPath: fake })).problem).toEqual({ kind: "not-running", text: "Codex 应用没有开着，先打开它。" });
     answer({ ok: true, projects: [] });

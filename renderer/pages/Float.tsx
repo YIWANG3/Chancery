@@ -27,20 +27,13 @@ const load = (): Prefs => {
 };
 
 const WIDTH: Record<Mode, number> = { mini: 300, full: 360 };
-const SHOWN: Bucket[] = ["needs", "look", "running"];
-const DOT: Record<Bucket, string> = { needs: "bg-warn", look: "bg-success", running: "bg-accent", ended: "bg-muted/60" };
+export const SHOWN: Bucket[] = ["needs", "look", "running"];
+export const DOT: Record<Bucket, string> = { needs: "bg-warn", look: "bg-success", running: "bg-accent", ended: "bg-muted/60" };
 
-/**
- * The floating window's page: the main window, minimized. Only sessions that still matter are listed (held up, waiting to be looked at,
- * running), newest-relevant first, in the overview's own order; finished ones take no room here. The page measures
- * itself after every render and the main process gives the window that size.
- */
-export function Float() {
-  const t = useT();
+/** What both forms of the floating window show: the sessions that still matter (held up, waiting to be looked at,
+ *  running; finished ones take no room), in the overview's own order, and how many there are of each. */
+export function useLive() {
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [prefs, setPrefs] = useState<Prefs>(load);
-  const root = useRef<HTMLDivElement>(null);
-
   useChanged(
     () => {
       api.sessions
@@ -51,19 +44,6 @@ export function Float() {
     [],
     { everyMs: 10_000 },
   );
-  useEffect(() => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(prefs));
-    } catch {}
-  }, [prefs]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !(e.target instanceof HTMLTextAreaElement)) void api.float.hide();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   const now = overview?.readAt ?? Date.now();
   const live = useMemo(() => {
     const since = now - HELD_UP_WINDOW_MS;
@@ -74,6 +54,39 @@ export function Float() {
     for (const s of live) n[BUCKET[s.state]] += 1;
     return n;
   }, [live]);
+  return { loaded: Boolean(overview), now, live, counts };
+}
+
+/** What the person chose in the floating window, kept across launches. */
+export function usePrefs() {
+  const [prefs, setPrefs] = useState<Prefs>(load);
+  useEffect(() => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(prefs));
+    } catch {}
+  }, [prefs]);
+  return [prefs, setPrefs] as const;
+}
+
+/**
+ * The floating window's page: the main window, minimized, standing free in a corner of the screen (its form on the
+ * display's camera housing is FloatNotch.tsx). The page measures itself after every render and the main process
+ * gives the window that size.
+ */
+export function Float() {
+  const t = useT();
+  const { loaded, now, live, counts } = useLive();
+  const [prefs, setPrefs] = usePrefs();
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !(e.target instanceof HTMLTextAreaElement)) void api.float.hide();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const rows = prefs.mode === "full" ? live.slice(0, prefs.count) : [];
 
   // Size follows content; the window is told after every paint.
@@ -92,24 +105,9 @@ export function Float() {
     <div ref={root} style={{ width: WIDTH[prefs.mode] }} className="bg-panel glass:bg-transparent text-text text-[13px] select-none">
       {/* The header is the handle: drag anywhere on it that is not a button. */}
       <div className={cn("drag flex items-center gap-3 px-3", mini ? "h-10" : "h-10 border-b border-line glass:border-text/10")}>
-        <span className="flex items-center gap-3 min-w-0" aria-label={t("float.counts")}>
-          {SHOWN.map((b) => (
-            <span key={b} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums", counts[b] ? "text-text" : "text-muted")} title={t(bucketKey(b))}>
-              <span className={cn("size-1.5 rounded-full", counts[b] ? DOT[b] : "bg-muted/40")} />
-              {t(bucketKey(b))} {counts[b]}
-            </span>
-          ))}
-        </span>
+        <Counts counts={counts} />
         <span className="ml-auto flex items-center gap-0.5">
-          {!mini && (
-            <span role="radiogroup" aria-label={t("float.howMany")} className="mr-1 inline-flex items-center rounded bg-panel2 p-0.5">
-              {COUNTS.map((c) => (
-                <button key={c} role="radio" aria-checked={prefs.count === c} onClick={() => setPrefs({ ...prefs, count: c })} className={cn("no-drag h-5 px-1.5 rounded-[3px] text-[11px] tabular-nums", prefs.count === c ? "bg-raised text-text" : "text-muted hover:text-text")}>
-                  {c}
-                </button>
-              ))}
-            </span>
-          )}
+          {!mini && <HowMany value={prefs.count} onChange={(count) => setPrefs({ ...prefs, count })} />}
           <IconButton label={mini ? t("float.expand") : t("float.collapse")} onClick={() => setPrefs({ ...prefs, mode: mini ? "full" : "mini" })}>
             {mini ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
           </IconButton>
@@ -123,7 +121,7 @@ export function Float() {
           {rows.map((s) => (
             <FloatRow key={`${s.app}:${s.id}`} s={s} now={now} />
           ))}
-          {!rows.length && <span className="px-1.5 py-1.5 text-muted">{overview ? t("float.empty") : t("float.loading")}</span>}
+          {!rows.length && <span className="px-1.5 py-1.5 text-muted">{loaded ? t("float.empty") : t("float.loading")}</span>}
           {live.length > rows.length && <span className="px-1.5 py-1 text-[12px] text-muted">{t("float.more", { n: live.length - rows.length })}</span>}
         </div>
       )}
@@ -131,7 +129,36 @@ export function Float() {
   );
 }
 
-function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+/** How many there are of each kind, each a dot and its name; a kind with none is dimmed. */
+export function Counts({ counts }: { counts: Record<Bucket, number> }) {
+  const t = useT();
+  return (
+    <span className="flex items-center gap-3 min-w-0" aria-label={t("float.counts")}>
+      {SHOWN.map((b) => (
+        <span key={b} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums", counts[b] ? "text-text" : "text-muted")} title={t(bucketKey(b))}>
+          <span className={cn("size-1.5 rounded-full", counts[b] ? DOT[b] : "bg-muted/40")} />
+          {t(bucketKey(b))} {counts[b]}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** The choice of how many sessions the list shows. */
+export function HowMany({ value, onChange }: { value: Count; onChange: (c: Count) => void }) {
+  const t = useT();
+  return (
+    <span role="radiogroup" aria-label={t("float.howMany")} className="mr-1 inline-flex items-center rounded bg-panel2 p-0.5">
+      {COUNTS.map((c) => (
+        <button key={c} role="radio" aria-checked={value === c} onClick={() => onChange(c)} className={cn("no-drag h-5 px-1.5 rounded-[3px] text-[11px] tabular-nums", value === c ? "bg-raised text-text" : "text-muted hover:text-text")}>
+          {c}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+export function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
   return (
     <button type="button" aria-label={label} title={label} onClick={onClick} className="no-drag size-6 inline-flex items-center justify-center rounded text-muted hover:text-text hover:bg-hover">
       {children}
@@ -141,7 +168,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
 
 /** One session: the exact state as a dot, the title, how long ago, then reply and jump. Clicking the title jumps. The
  *  row lights up as a rounded card inside the list's 6px frame, like rows in the main window, not edge to edge. */
-function FloatRow({ s, now }: { s: SessionRow; now: number }) {
+export function FloatRow({ s, now }: { s: SessionRow; now: number }) {
   const t = useT();
   const reply = useReply(s, now);
   const heldUp = BUCKET[s.state] === "needs";

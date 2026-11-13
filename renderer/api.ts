@@ -34,6 +34,9 @@ export interface TicketDetail {
 export type TicketRow = Ticket & { session_open: SessionOpen | null };
 
 export type ThemePref = "system" | "light" | "dark";
+/** Where the floating window is, and what it stands on in the corner (main/settings.ts). */
+export type FloatPlace = "corner" | "top";
+export type FloatStyle = "glass" | "clear" | "solid";
 
 export interface AppSettings {
   theme: ThemePref;
@@ -65,6 +68,16 @@ export interface AppSettings {
   sessionAlerts: boolean;
   floatOnStart: boolean;
   floatPosition: { x: number; y: number } | null;
+  floatPlace: FloatPlace;
+  floatStyle: FloatStyle;
+  floatOpacity: number;
+  /** What this machine can show: glass needs macOS 26, the top of the screen a menu bar to hang in. */
+  floatStyles: FloatStyle[];
+  floatPlaces: FloatPlace[];
+  notchDisplay: "active" | "all" | "builtin";
+  notchRest: "counts" | "hidden";
+  notchCorners: "round" | "tight";
+  notchOpen: "hover" | "click";
   pg: { embedded: boolean; connectionString: string };
 }
 
@@ -78,6 +91,8 @@ export interface PanelNotice {
 export interface AxStatus {
   available: boolean;
   trusted: boolean;
+  /** The app macOS holds the permission against: the row to turn on in System Settings. */
+  askedOf?: string;
   error?: string;
   probe?: { ok: boolean; error?: string; projects?: string[]; composer?: { present?: boolean; usage?: string; model?: string } } | null;
 }
@@ -149,6 +164,13 @@ export const api = {
     visible: () => call<boolean>("float:visible"),
     /** The page's own size after a render; the window takes it. */
     fit: (size: { width: number; height: number }) => call<void>("float:fit", size),
+    /** Shows the float beside the main window while its settings are being changed, so what they do is seen; `false`
+     *  ends that and the float goes back to where its own rules have it. */
+    preview: (on: boolean) => call<void>("float:preview", on),
+    /** The notch form: whether the pointer is on its shape. Off it, the window lets clicks through. */
+    hit: (on: boolean) => call<void>("float:hit", on),
+    /** At the top: the free width in the menu bar on each side of this window's housing; null where unknown. */
+    room: () => call<{ left: number | null; right: number | null } | null>("float:room"),
   },
   /** The notice panel: what it is showing, and what a click on one of them does. */
   notices: {

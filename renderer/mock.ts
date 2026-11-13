@@ -92,7 +92,7 @@ export function installMock(): void {
         { key: "/Users/me/workspace/AfterFrame", name: "AfterFrame", label: app === "claude" ? "AfterFrame" : "media-resource-management" },
         { key: "/Users/me/workspace/chancery-claude", name: "chancery-claude", label: "Chancery" },
       ];
-      if (localStorage.getItem("mock.noax") === "1") return { projects: known, problem: { kind: "no-ax", text: `Chancery 还没有辅助功能权限，没法替你去按${app === "claude" ? " Claude 桌面端" : " Codex 应用"}。在「系统设置 → 隐私与安全性 → 辅助功能」里打开 Chancery，这里会自己恢复。` } };
+      if (localStorage.getItem("mock.noax") === "1") return { projects: known, problem: { kind: "no-ax", text: `「Chancery」没有辅助功能权限，没法替你去按${app === "claude" ? " Claude 桌面端" : " Codex 应用"}。在「系统设置 → 隐私与安全性 → 辅助功能」里打开它，这里会自己恢复。` } };
       const only = app === "claude" ? ["notes", "This computer"] : ["General"];
       return { projects: [...known, ...only.map((label) => ({ key: `sidebar:${label}`, name: label, label }))] };
     },
@@ -109,7 +109,7 @@ export function installMock(): void {
     "daemon:status": () => ({ running: true, paused: false, lastTickAt: now, lastError: null }),
     "agents:claude": () => [{ pid: 1, cwd: "/Users/me/workspace/AfterFrame", kind: "desktop", startedAt: 0, sessionId: "s1", name: "heic 缩略图", status: "busy" }],
     "ax:status": () => ({ available: true, trusted: true, probe: { ok: true, projects: ["AfterFrame"], composer: { usage: "Weekly 45%" } } }),
-    "settings:get": () => ({ ...settings, lang: resolveLang(settings.language, navigator.languages), pgPort: 54329, pgConnectionString: "", worktreeRoot: "~/.platform/worktrees", claudeBin: "claude", permissionMode: "auto", claudeLaunchMode: "desktop", defaultModel: "", codexBin: "codex", codexModel: "", codexSandbox: "workspace-write", codexLaunchMode: "exec", quickCaptureShortcut: "CommandOrControl+Shift+Space", daemonIntervalMs: 30000, mcpPort: 41710, clerkBackend: "auto", deepseekApiKey: "", deepseekModel: "deepseek-chat", autoTriage: true, auditEnabled: true, workerLowPriority: true, launchAtLogin: false, sessionAlerts: true, floatOnStart: false, floatPosition: null, pg: { embedded: true, connectionString: "postgres://chancery@127.0.0.1:54329/chancery" } }),
+    "settings:get": () => ({ ...settings, lang: resolveLang(settings.language, navigator.languages), pgPort: 54329, pgConnectionString: "", worktreeRoot: "~/.platform/worktrees", claudeBin: "claude", permissionMode: "auto", claudeLaunchMode: "desktop", defaultModel: "", codexBin: "codex", codexModel: "", codexSandbox: "workspace-write", codexLaunchMode: "exec", quickCaptureShortcut: "CommandOrControl+Shift+Space", daemonIntervalMs: 30000, mcpPort: 41710, clerkBackend: "auto", deepseekApiKey: "", deepseekModel: "deepseek-chat", autoTriage: true, auditEnabled: true, workerLowPriority: true, launchAtLogin: false, sessionAlerts: true, floatOnStart: false, floatPosition: null, notchRest: "counts", notchCorners: "round", notchOpen: "hover", notchDisplay: "active", floatOpacity: 50, floatPlace: "corner", floatPlaces: ["corner", "top"], floatStyle: "glass", floatStyles: ["glass", "clear", "solid"], pg: { embedded: true, connectionString: "postgres://chancery@127.0.0.1:54329/chancery" } }),
   };
   window.chancery = {
     invoke: async (channel, payload) => {
