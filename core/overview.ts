@@ -90,6 +90,9 @@ export interface Overview {
   readAt: number;
   /** One line per source that could not be read. */
   errors: string[];
+  /** Whether each app's own record of its sessions is on this machine at all. False for an app that is not installed
+   *  or has never been used here: nothing to read, which is not an error. */
+  sources: Record<SessionApp, boolean>;
 }
 
 /** Sessions whose directory no longer exists are folded into this one group. */
@@ -597,5 +600,6 @@ export async function buildOverview(opts: OverviewOptions = {}): Promise<Overvie
   const decided = decideAll([...claude, ...codex], lang);
   const placed = await Promise.all(decided.map(async (s): Promise<SessionRow> => ({ ...s, projectKey: await projectKeyFor(s.cwd) })));
   const rows = opts.includeGone ? placed : placed.filter((s) => s.projectKey !== OTHER_PROJECT_KEY);
-  return { ...groupByProject(rows, lang), readAt: now, errors };
+  const sources = { claude: await isDirectory(desktopIndexRoot(home)), codex: Boolean(await stat(join(home, ".codex", "state_5.sqlite")).catch(() => null)) };
+  return { ...groupByProject(rows, lang), readAt: now, errors, sources };
 }

@@ -66,6 +66,8 @@ export interface AppSettings {
   workerLowPriority: boolean;
   launchAtLogin: boolean;
   sessionAlerts: boolean;
+  /** The first-open note on the session page has been put away. */
+  welcomed: boolean;
   floatOnStart: boolean;
   floatPosition: { x: number; y: number } | null;
   floatPlace: FloatPlace;
@@ -133,7 +135,8 @@ export const api = {
   /** Every Claude Desktop and Codex session on this machine, by project. Read from the two apps' own state. */
   sessions: { overview: () => call<Overview>("sessions:overview") },
   ax: {
-    status: (prompt?: boolean) => call<AxStatus>("ax:status", { prompt }),
+    /** `light` asks only whether the permission is there, without reading Claude Desktop's sidebar (which takes seconds). */
+    status: (prompt?: boolean, light?: boolean) => call<AxStatus>("ax:status", { prompt, light }),
     /** Asks macOS for the Accessibility permission and opens the pane of System Settings it is granted in. */
     grant: () => call<void>("ax:grant"),
   },

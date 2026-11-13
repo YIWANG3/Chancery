@@ -117,11 +117,15 @@ function HeldUpCount() {
   );
 }
 
+/** The daemon belongs to the ticket pipeline, so it is on the sidebar only once a project has been registered for it:
+ *  someone who only watches sessions has no daemon to think about. Without the database there is nothing to show. */
 function DaemonBadge() {
   const t = useT();
   const [s, setS] = useState<{ running: boolean; paused: boolean; lastTickAt: string | null; lastError: string | null } | null>(null);
   useChanged(() => {
-    void api.daemon.status().then(setS);
+    void Promise.all([api.projects.list(), api.daemon.status()])
+      .then(([projects, status]) => setS(projects.length ? status : null))
+      .catch(() => setS(null));
   });
   if (!s) return null;
   const color = !s.running ? "bg-error" : s.paused ? "bg-warn" : s.lastError ? "bg-error" : "bg-success";

@@ -74,7 +74,9 @@ export function Projects() {
     setRegistered(await api.projects.list());
     setFound(await api.projects.discover());
   };
-  useChanged(() => void refresh());
+  // Registered projects live in the database. Without it the page is still every project the two apps have
+  // sessions in; registering one then says why it cannot.
+  useChanged(() => void refresh().catch(() => {}));
   useEffect(() => {
     try {
       localStorage.setItem(KEY, JSON.stringify(prefs));

@@ -80,7 +80,7 @@ export function installMock(): void {
       for (const x of mine) counts[x.state] = (counts[x.state] ?? 0) + 1;
       return { key, name, dir: key, apps: [...new Set(mine.map((x) => x.app))], sessions: mine.length, counts, lastAt: Math.max(...mine.map((x) => x.at)) };
     };
-    return { projects: [group(af, "AfterFrame"), group(ch, "chancery-claude"), group(notes, "notes")], sessions, readAt: Date.now(), errors: [] };
+    return { projects: [group(af, "AfterFrame"), group(ch, "chancery-claude"), group(notes, "notes")], sessions, readAt: Date.now(), errors: [], sources: { claude: true, codex: true } };
   };
   // The language is the one setting the mock keeps, so the settings page can switch it like the app does.
   const settings: { theme: string; language: LangPref } = { theme: "system", language: "system" };
@@ -108,7 +108,7 @@ export function installMock(): void {
     "tickets:get": ({ id }: { id: string }) => detail(id),
     "daemon:status": () => ({ running: true, paused: false, lastTickAt: now, lastError: null }),
     "agents:claude": () => [{ pid: 1, cwd: "/Users/me/workspace/AfterFrame", kind: "desktop", startedAt: 0, sessionId: "s1", name: "heic 缩略图", status: "busy" }],
-    "ax:status": () => ({ available: true, trusted: true, probe: { ok: true, projects: ["AfterFrame"], composer: { usage: "Weekly 45%" } } }),
+    "ax:status": () => (localStorage.getItem("mock.noax") === "1" ? { available: true, trusted: false, askedOf: "Chancery" } : { available: true, trusted: true, probe: { ok: true, projects: ["AfterFrame"], composer: { usage: "Weekly 45%" } } }),
     "settings:get": () => ({ ...settings, lang: resolveLang(settings.language, navigator.languages), pgPort: 54329, pgConnectionString: "", worktreeRoot: "~/.platform/worktrees", claudeBin: "claude", permissionMode: "auto", claudeLaunchMode: "desktop", defaultModel: "", codexBin: "codex", codexModel: "", codexSandbox: "workspace-write", codexLaunchMode: "exec", quickCaptureShortcut: "CommandOrControl+Shift+Space", daemonIntervalMs: 30000, mcpPort: 41710, clerkBackend: "auto", deepseekApiKey: "", deepseekModel: "deepseek-chat", autoTriage: true, auditEnabled: true, workerLowPriority: true, launchAtLogin: false, sessionAlerts: true, floatOnStart: false, floatPosition: null, notchRest: "counts", notchCorners: "round", notchOpen: "hover", notchDisplay: "active", floatOpacity: 50, floatPlace: "corner", floatPlaces: ["corner", "top"], floatStyle: "glass", floatStyles: ["glass", "clear", "solid"], pg: { embedded: true, connectionString: "postgres://chancery@127.0.0.1:54329/chancery" } }),
   };
   window.chancery = {

@@ -174,10 +174,23 @@ test("PR 开了之后审计：第一轮没过回炉，第二轮通过进待合�
   await drawer.getByRole("button", { name: "关闭" }).click();
 });
 
-test("设置页显示内置数据库和 MCP 地址", async ({ win, env }) => {
+test("设置页：会话用得到的在前面，工单流水线的设置折在一行后面，展开才有数据库和 MCP 地址", async ({ win, env }) => {
   await win.getByRole("button", { name: "设置", exact: true }).click();
+  // What watching sessions needs is on the page as it opens: the look, the alerts, the permission replying needs.
+  await expect(win.getByRole("heading", { name: "会话" })).toBeVisible();
+  await expect(win.getByText("辅助功能授权")).toBeVisible();
+  await expect(win.getByRole("switch", { name: "登录时启动" })).toBeVisible();
+  // The pipeline's settings are not, until asked for.
+  const pipeline = win.getByRole("button", { name: /^工单流水线/ });
+  await expect(pipeline).toHaveAttribute("aria-expanded", "false");
+  await expect(win.getByText(/内置的 Postgres/)).toHaveCount(0);
+  await expect(win.getByRole("heading", { name: "书记" })).toHaveCount(0);
+  await pipeline.click();
   await expect(win.getByText(/内置的 Postgres/)).toBeVisible();
   await expect(win.getByText(`127.0.0.1:${env.mcpPort}/mcp`).first()).toBeVisible();
+  await expect(win.getByRole("heading", { name: "书记" })).toBeVisible();
+  await pipeline.click();
+  await expect(win.getByText(/内置的 Postgres/)).toHaveCount(0);
 });
 
 test("会话页是导航里的第一项，导航里没有工单", async ({ win }) => {
@@ -539,4 +552,49 @@ test("浮窗的样式和位置：设置里换成透明，浮窗就没有底；�
   await expect.poll(async () => (await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().includes("#/float") && w.isVisible()).length))).toBe(1);
   await win.evaluate(() => window.chancery.invoke("main:show"));
   await expect.poll(() => win.evaluate(() => window.chancery.invoke("float:visible"))).toBe(false);
+});
+
+test("第一次打开的说明：说清读到了什么、回复要什么权限，授权后自己变，点「知道了」就不再出现", async ({ win, env }) => {
+  const settings = (patch: Record<string, unknown>) => win.evaluate((p) => window.chancery.invoke("settings:set", p), patch) as Promise<{ welcomed: boolean; sessionAlerts: boolean }>;
+  // As on a machine where nothing has been put away yet and the permission has not been given.
+  mkdirSync(env.fakeLog, { recursive: true });
+  writeFileSync(join(env.fakeLog, "no-ax"), "");
+  await settings({ welcomed: false });
+  await win.getByRole("button", { name: "项目", exact: true }).click();
+  await win.getByRole("button", { name: /^会话/ }).click();
+
+  const note = win.getByRole("region", { name: "开始使用" });
+  await expect(note.getByRole("heading", { name: "两家的会话都在这里" })).toBeVisible();
+  // Both apps' records are there (the stand-in home has them), each with how many sessions it holds.
+  const row = (name: string) => note.getByRole("listitem").filter({ hasText: name });
+  await expect(row("Claude")).toContainText(/最近 14 天 \d+ 个会话/);
+  await expect(row("Codex")).toContainText(/最近 14 天 \d+ 个会话/);
+  // The list underneath is already there: nothing on the note has to be done first.
+  await expect(win.getByRole("combobox", { name: "项目" })).toBeVisible();
+
+  // Replying needs the permission: the row says where to give it, and follows by itself once it is given.
+  const reply = row("回复和新建会话");
+  await expect(reply).toContainText("系统设置 → 隐私与安全性 → 辅助功能");
+  await expect(reply.getByRole("button", { name: "去授权" })).toBeVisible();
+  rmSync(join(env.fakeLog, "no-ax"));
+  await expect(reply).toContainText("已授权");
+  await expect(reply.getByRole("button", { name: "去授权" })).toHaveCount(0);
+
+  // The alerts switch on the note is the setting itself.
+  const alerts = note.getByRole("switch", { name: "会话提醒" });
+  await expect(alerts).toBeChecked();
+  await alerts.click();
+  await expect(alerts).not.toBeChecked();
+  await expect.poll(async () => ((await win.evaluate(() => window.chancery.invoke("settings:get"))) as { sessionAlerts: boolean }).sessionAlerts).toBe(false);
+  await alerts.click();
+  await expect(alerts).toBeChecked();
+
+  // Put away, it stays away.
+  await note.getByRole("button", { name: "知道了" }).click();
+  await expect(note).toHaveCount(0);
+  await expect.poll(async () => ((await win.evaluate(() => window.chancery.invoke("settings:get"))) as { welcomed: boolean; sessionAlerts: boolean })).toMatchObject({ welcomed: true, sessionAlerts: true });
+  await win.getByRole("button", { name: "项目", exact: true }).click();
+  await win.getByRole("button", { name: /^会话/ }).click();
+  await expect(win.getByRole("combobox", { name: "项目" })).toBeVisible();
+  await expect(note).toHaveCount(0);
 });

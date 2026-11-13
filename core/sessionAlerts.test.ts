@@ -11,6 +11,7 @@ const overview = (sessions: SessionRow[], readAt = NOW): Overview => ({
   projects: [{ key: "/w/a", name: "a", dir: "/w/a", apps: ["claude", "codex"], sessions: sessions.length, counts: { "needs-you": 0, error: 0, stuck: 0, running: 0, delegated: 0, review: 0, unread: 0, interrupted: 0, expired: 0, done: 0 }, lastAt: NOW }],
   readAt,
   errors: [],
+  sources: { claude: true, codex: true },
 });
 
 /** A tracker that has already seen one quiet session from each app, so both are past their baseline. */

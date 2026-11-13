@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, heldUpSessions, migrate, resolveLang, t, triageTicket, type Daemon, type Db, type Lang, type SessionRow, type Triage } from "../core/index.js";
-import { broadcast, registerIpc } from "./ipc.js";
+import { broadcast, registerIpc, type Backend } from "./ipc.js";
 import { createFloatControl, type FloatControl, type NotchSpot, type Room } from "./floatWindow.js";
 import { loadGlass } from "./glass.js";
 import { createNotifier, type Notifier } from "./notify.js";
@@ -65,6 +65,9 @@ let quitting = false;
 /** Set the moment quitting starts (before-quit), ahead of `quitting`, which marks the shutdown steps proper. */
 let quitRequested = false;
 let daemon: Daemon | null = null;
+/** The database's side coming up (boot), from the moment it starts until it is up or has failed; quitting waits for
+ *  it, so a Postgres that is still starting is not left behind. */
+let booting: Promise<unknown> | null = null;
 let mainWindow: BrowserWindow | null = null;
 let captureWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -492,8 +495,11 @@ function startWatchingSessions() {
   });
 }
 
-async function boot() {
-  log(`chancery starting, userData ${userData}`);
+/**
+ * The ticket pipeline's side: the database, the daemon on top of it, the MCP server. The session overview needs none
+ * of it, so the window is up before this starts and stays usable when it fails.
+ */
+async function boot(): Promise<Backend> {
   pg = await startPg({ dataDir: join(userData, "pgdata"), port: settings.pgPort, external: settings.pgConnectionString || undefined, log });
   db = createDb(pg.connectionString);
   const applied = await migrate(db);
@@ -536,9 +542,16 @@ async function boot() {
     clerk: clerkFor,
     auditEnabled: () => settings.auditEnabled,
   });
+  await daemon.start();
+  log("daemon started");
+  mcpHttp = startMcpHttp({ repo, daemon }, settings.mcpPort, log);
+  return { repo, daemon };
+}
+
+/** Every channel the pages call. The ones that stand on the database wait for `backend`; the rest answer at once. */
+function setupIpc(backend: Promise<Backend>) {
   registerIpc({
-    repo,
-    daemon,
+    backend: () => backend,
     settings: () => settings,
     saveSettings: (s) => {
       if (s.theme !== settings.theme) applyTheme(s.theme);
@@ -576,27 +589,32 @@ async function boot() {
     refreshSessions: () => void sessionWatch?.refresh().catch(() => {}),
     sessionsHome: process.env.CHANCERY_SESSIONS_HOME || undefined,
   });
-  await daemon.start();
-  log("daemon started");
-  applyLoginItem(settings.launchAtLogin);
-  mcpHttp = startMcpHttp({ repo, daemon }, settings.mcpPort, log);
 }
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", showMain);
-  app.whenReady().then(async () => {
+  app.whenReady().then(() => {
+    log(`chancery starting, userData ${userData}`);
     startWatchingSessions();
     setupFloat();
-    try {
-      await boot();
-    } catch (err) {
+    // The database comes up behind the window, not before it: the first start initialises a Postgres cluster, which
+    // takes seconds, and the sessions on the first page are read from the two apps' own files.
+    const backend = boot().catch((err: unknown) => {
       log(`boot failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-    }
+      throw new Error(t(lang(), "backend.unavailable", { error: err instanceof Error ? err.message : String(err) }));
+    });
+    // Up or failed, the pages that were waiting on it ask again. A failure is each caller's to report.
+    booting = backend.then(
+      () => broadcast("chancery:changed"),
+      () => broadcast("chancery:changed"),
+    );
+    setupIpc(backend);
     // Started minimized to the floating window: the main window waits until that is put away.
     if (!floatControl?.isVisible()) showMain();
     setupTray();
+    applyLoginItem(settings.launchAtLogin);
     if (!globalShortcut.register(settings.quickCaptureShortcut, toggleCapture)) log(`shortcut ${settings.quickCaptureShortcut} could not be registered`);
   });
   app.on("activate", showMain);
@@ -640,7 +658,7 @@ if (!app.requestSingleInstanceLock()) {
     }, 5_000).unref?.();
   });
   app.on("will-quit", (ev) => {
-    if (quitting || (!pg && !daemon)) return;
+    if (quitting || (!pg && !daemon && !booting)) return;
     ev.preventDefault();
     void shutdown();
   });
@@ -649,12 +667,6 @@ if (!app.requestSingleInstanceLock()) {
 /** Stops the daemon, the pool and the embedded Postgres in order, each step bounded, then exits whatever happened. */
 async function shutdown(): Promise<void> {
   quitting = true;
-  const d = daemon;
-  const p = pg;
-  const database = db;
-  daemon = null;
-  pg = null;
-  db = null;
   const step = async (name: string, fn: () => Promise<unknown>, ms: number) => {
     const t0 = Date.now();
     const result = await Promise.race([fn().then(() => "ok", (err: unknown) => `failed: ${String(err)}`), new Promise<string>((r) => setTimeout(() => r(`timed out after ${ms} ms`), ms))]);
@@ -664,7 +676,17 @@ async function shutdown(): Promise<void> {
   const deadline = setTimeout(() => {
     log("quit: deadline passed; exiting");
     app.exit(0);
-  }, 12_000);
+  }, 18_000);
+  // A database still coming up is waited for, so what it started is there to be stopped below.
+  const coming = booting;
+  booting = null;
+  if (coming) await step("boot settled", () => coming, 6_000);
+  const d = daemon;
+  const p = pg;
+  const database = db;
+  daemon = null;
+  pg = null;
+  db = null;
   mcpHttp?.close();
   if (d) await step("daemon stopped", () => d.stop(), 5_000);
   if (database) await step("pool closed", () => database.close(), 2_000);

@@ -51,6 +51,8 @@ export interface Settings {
   launchAtLogin: boolean;
   /** A system notification when a Claude Desktop or Codex session stops to wait, fails or finishes. */
   sessionAlerts: boolean;
+  /** The first-open note on the session page has been put away. */
+  welcomed: boolean;
   /** Show the floating window as soon as the app starts. */
   floatOnStart: boolean;
   /** Where the floating window was last left; null until it has been moved. */
@@ -95,6 +97,7 @@ export const DEFAULT_SETTINGS: Settings = {
   workerLowPriority: true,
   launchAtLogin: false,
   sessionAlerts: true,
+  welcomed: false,
   floatOnStart: false,
   floatPosition: null,
   floatPlace: "corner",

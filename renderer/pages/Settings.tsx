@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import type { LangPref } from "@core/i18n";
 import { api, type AppSettings, type AxStatus, type ThemePref } from "../api";
+import { cn } from "../cn";
 import { setLang, useT, type T } from "../i18n";
 import { Button, Segmented, Select, SettingGroup, SettingRow, Slider, Switch } from "../ui";
 
@@ -135,96 +137,140 @@ export function SettingsPage() {
         <SettingRow title={t("settings.floatOnStart")} description={t("settings.floatOnStartHint")}>
           {toggle("floatOnStart", t("settings.floatOnStart"))}
         </SettingRow>
-      </SettingGroup>
-
-      <SettingGroup title="Claude">
-        <SettingRow title={t("settings.claudeBin")} description={t("settings.claudeBinHint")}>
-          {text("claudeBin", t("settings.claudeBin"))}
-        </SettingRow>
-        <SettingRow title={t("settings.launchMode")} description={`${t("settings.claudeLaunchHint")}${restart}`}>
-          <Segmented value={s.claudeLaunchMode} onChange={(v) => void set("claudeLaunchMode", v)} options={claudeLaunch(t)} />
-        </SettingRow>
-        <SettingRow title={t("settings.permission")} description={t("settings.permissionHint")}>
-          <Select ariaLabel={t("settings.permission")} value={s.permissionMode} onChange={(v) => void set("permissionMode", v)} options={PERMISSION} />
-        </SettingRow>
-        <SettingRow title={t("settings.defaultModel")} description={t("settings.defaultModelHint")}>
-          {text("defaultModel", t("settings.defaultModel"), { placeholder: t("settings.cliDefault") })}
-        </SettingRow>
-      </SettingGroup>
-
-      <SettingGroup title="Codex">
-        <SettingRow title={t("settings.codexBin")} description={t("settings.codexBinHint")}>
-          {text("codexBin", t("settings.codexBin"))}
-        </SettingRow>
-        <SettingRow title={t("settings.launchMode")} description={`${t("settings.codexLaunchHint")}${restart}`}>
-          <Segmented value={s.codexLaunchMode} onChange={(v) => void set("codexLaunchMode", v)} options={codexLaunch(t)} />
-        </SettingRow>
-        <SettingRow title={t("settings.model")} description={t("settings.codexModelHint")}>
-          {text("codexModel", t("settings.model"), { placeholder: t("settings.fromConfigToml") })}
-        </SettingRow>
-        <SettingRow title={t("settings.sandbox")} description={t("settings.sandboxHint")}>
-          <Select ariaLabel={t("settings.sandbox")} value={s.codexSandbox} onChange={(v) => void set("codexSandbox", v)} options={SANDBOX} />
-        </SettingRow>
-      </SettingGroup>
-
-      <SettingGroup title={t("settings.clerk")}>
-        <SettingRow title={t("settings.clerkBackend")} description={t("settings.clerkBackendHint")}>
-          <Segmented value={s.clerkBackend} onChange={(v) => void set("clerkBackend", v)} options={clerks(t)} />
-        </SettingRow>
-        <SettingRow title={t("settings.deepseekKey")} description={t("settings.deepseekKeyHint")}>
-          {text("deepseekApiKey", t("settings.deepseekKey"), { kind: "password" })}
-        </SettingRow>
-        <SettingRow title={t("settings.deepseekModel")}>{text("deepseekModel", t("settings.deepseekModel"))}</SettingRow>
-        <SettingRow title={t("settings.autoTriage")} description={t("settings.autoTriageHint")}>
-          {toggle("autoTriage", t("settings.autoTriage"))}
-        </SettingRow>
-      </SettingGroup>
-
-      <SettingGroup title={t("settings.daemon")}>
-        <SettingRow title={t("settings.audit")} description={t("settings.auditHint")}>
-          {toggle("auditEnabled", t("settings.audit"))}
-        </SettingRow>
-        <SettingRow title={t("settings.lowPriority")} description={`${t("settings.lowPriorityHint")}${restart}`}>
-          {toggle("workerLowPriority", t("settings.lowPriority"))}
-        </SettingRow>
         <SettingRow title={t("settings.launchAtLogin")} description={t("settings.launchAtLoginHint")}>
           {toggle("launchAtLogin", t("settings.launchAtLogin"))}
         </SettingRow>
       </SettingGroup>
 
-      <SettingGroup title={t("settings.other")}>
-        <SettingRow title={t("settings.worktreeRoot")} description={t("settings.worktreeRootHint")} wide>
-          {text("worktreeRoot", t("settings.worktreeRoot"))}
-        </SettingRow>
-        <SettingRow title={t("settings.captureShortcut")} description={`${t("settings.captureShortcutHint")}${restart}`}>
-          {text("quickCaptureShortcut", t("settings.captureShortcut"))}
-        </SettingRow>
-        <SettingRow title={t("settings.externalPg")} description={`${t("settings.externalPgHint")}${restart}`} wide>
-          {text("pgConnectionString", t("settings.externalPg"), { placeholder: "postgres://…" })}
-        </SettingRow>
-        <SettingRow title={t("settings.mcpPort")} description={restart}>
-          {text("mcpPort", t("settings.mcpPort"), { kind: "number" })}
-        </SettingRow>
-      </SettingGroup>
-
-      <SettingGroup title={t("common.claudeDesktop")}>
-        <SettingRow title={t("settings.axTitle")} description={axDescription(t, ax)}>
+      <SettingGroup title={t("settings.permissions")}>
+        <SettingRow
+          title={t("settings.axTitle")}
+          description={
+            <>
+              <span className="block">{t("settings.axWhy")}</span>
+              <span className="block">{axDescription(t, ax)}</span>
+            </>
+          }
+        >
           {ax && ax.available && !ax.trusted && <Button onClick={() => api.ax.status(true).then(setAx)}>{t("settings.requestAx")}</Button>}
         </SettingRow>
       </SettingGroup>
 
-      <SettingGroup title={t("settings.integration")}>
-        <SettingRow title={t("settings.database")} description={s.pg.embedded ? t("settings.dbEmbedded") : t("settings.dbExternal")} stacked>
-          <Code>{s.pg.connectionString}</Code>
-        </SettingRow>
-        <SettingRow title="MCP" description={t("settings.mcpHint")} stacked>
-          <div className="flex flex-col gap-2 w-full">
-            <Code>claude mcp add --scope user --transport http chancery http://127.0.0.1:{s.mcpPort}/mcp</Code>
-            <Code>codex mcp add chancery --url http://127.0.0.1:{s.mcpPort}/mcp</Code>
-          </div>
-        </SettingRow>
-      </SettingGroup>
+      {/* Everything below belongs to the ticket pipeline, which is shelved: out of the way of someone who only
+          watches sessions, one click away for whoever still runs it. */}
+      <Disclosure title={t("settings.pipeline")} hint={t("settings.pipelineHint")}>
+        <SettingGroup title="Claude">
+          <SettingRow title={t("settings.claudeBin")} description={t("settings.claudeBinHint")}>
+            {text("claudeBin", t("settings.claudeBin"))}
+          </SettingRow>
+          <SettingRow title={t("settings.launchMode")} description={`${t("settings.claudeLaunchHint")}${restart}`}>
+            <Segmented value={s.claudeLaunchMode} onChange={(v) => void set("claudeLaunchMode", v)} options={claudeLaunch(t)} />
+          </SettingRow>
+          <SettingRow title={t("settings.permission")} description={t("settings.permissionHint")}>
+            <Select ariaLabel={t("settings.permission")} value={s.permissionMode} onChange={(v) => void set("permissionMode", v)} options={PERMISSION} />
+          </SettingRow>
+          <SettingRow title={t("settings.defaultModel")} description={t("settings.defaultModelHint")}>
+            {text("defaultModel", t("settings.defaultModel"), { placeholder: t("settings.cliDefault") })}
+          </SettingRow>
+        </SettingGroup>
+
+        <SettingGroup title="Codex">
+          <SettingRow title={t("settings.codexBin")} description={t("settings.codexBinHint")}>
+            {text("codexBin", t("settings.codexBin"))}
+          </SettingRow>
+          <SettingRow title={t("settings.launchMode")} description={`${t("settings.codexLaunchHint")}${restart}`}>
+            <Segmented value={s.codexLaunchMode} onChange={(v) => void set("codexLaunchMode", v)} options={codexLaunch(t)} />
+          </SettingRow>
+          <SettingRow title={t("settings.model")} description={t("settings.codexModelHint")}>
+            {text("codexModel", t("settings.model"), { placeholder: t("settings.fromConfigToml") })}
+          </SettingRow>
+          <SettingRow title={t("settings.sandbox")} description={t("settings.sandboxHint")}>
+            <Select ariaLabel={t("settings.sandbox")} value={s.codexSandbox} onChange={(v) => void set("codexSandbox", v)} options={SANDBOX} />
+          </SettingRow>
+        </SettingGroup>
+
+        <SettingGroup title={t("settings.clerk")}>
+          <SettingRow title={t("settings.clerkBackend")} description={t("settings.clerkBackendHint")}>
+            <Segmented value={s.clerkBackend} onChange={(v) => void set("clerkBackend", v)} options={clerks(t)} />
+          </SettingRow>
+          <SettingRow title={t("settings.deepseekKey")} description={t("settings.deepseekKeyHint")}>
+            {text("deepseekApiKey", t("settings.deepseekKey"), { kind: "password" })}
+          </SettingRow>
+          <SettingRow title={t("settings.deepseekModel")}>{text("deepseekModel", t("settings.deepseekModel"))}</SettingRow>
+          <SettingRow title={t("settings.autoTriage")} description={t("settings.autoTriageHint")}>
+            {toggle("autoTriage", t("settings.autoTriage"))}
+          </SettingRow>
+        </SettingGroup>
+
+        <SettingGroup title={t("settings.daemon")}>
+          <SettingRow title={t("settings.audit")} description={t("settings.auditHint")}>
+            {toggle("auditEnabled", t("settings.audit"))}
+          </SettingRow>
+          <SettingRow title={t("settings.lowPriority")} description={`${t("settings.lowPriorityHint")}${restart}`}>
+            {toggle("workerLowPriority", t("settings.lowPriority"))}
+          </SettingRow>
+        </SettingGroup>
+
+        <SettingGroup title={t("settings.other")}>
+          <SettingRow title={t("settings.worktreeRoot")} description={t("settings.worktreeRootHint")} wide>
+            {text("worktreeRoot", t("settings.worktreeRoot"))}
+          </SettingRow>
+          <SettingRow title={t("settings.captureShortcut")} description={`${t("settings.captureShortcutHint")}${restart}`}>
+            {text("quickCaptureShortcut", t("settings.captureShortcut"))}
+          </SettingRow>
+          <SettingRow title={t("settings.externalPg")} description={`${t("settings.externalPgHint")}${restart}`} wide>
+            {text("pgConnectionString", t("settings.externalPg"), { placeholder: "postgres://…" })}
+          </SettingRow>
+          <SettingRow title={t("settings.mcpPort")} description={restart}>
+            {text("mcpPort", t("settings.mcpPort"), { kind: "number" })}
+          </SettingRow>
+        </SettingGroup>
+
+        <SettingGroup title={t("settings.integration")}>
+          <SettingRow title={t("settings.database")} description={s.pg.embedded ? t("settings.dbEmbedded") : t("settings.dbExternal")} stacked>
+            <Code>{s.pg.connectionString}</Code>
+          </SettingRow>
+          <SettingRow title="MCP" description={t("settings.mcpHint")} stacked>
+            <div className="flex flex-col gap-2 w-full">
+              <Code>claude mcp add --scope user --transport http chancery http://127.0.0.1:{s.mcpPort}/mcp</Code>
+              <Code>codex mcp add chancery --url http://127.0.0.1:{s.mcpPort}/mcp</Code>
+            </div>
+          </SettingRow>
+        </SettingGroup>
+      </Disclosure>
     </div>
+  );
+}
+
+const PIPELINE_OPEN = "chancery.settings.pipelineOpen";
+
+/** A run of setting groups folded behind one line. Whether it is open is remembered on this machine. */
+function Disclosure({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(PIPELINE_OPEN) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    try {
+      localStorage.setItem(PIPELINE_OPEN, next ? "1" : "0");
+    } catch {}
+  };
+  return (
+    <section className="flex flex-col gap-10 border-t border-line pt-6">
+      <button type="button" aria-expanded={open} onClick={toggle} className="no-drag -mx-3 flex items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-panel2">
+        <ChevronRight size={16} className={cn("shrink-0 text-muted transition-transform", open && "rotate-90")} aria-hidden />
+        <span className="flex flex-col gap-1 text-pretty">
+          <span className="text-[15px] font-medium text-text">{title}</span>
+          <span className="text-[13px] leading-snug text-muted">{hint}</span>
+        </span>
+      </button>
+      {open && children}
+    </section>
   );
 }
 

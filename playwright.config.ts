@@ -2,7 +2,8 @@ import { defineConfig } from "@playwright/test";
 
 // Electron e2e: one app instance per worker, serial specs. `npm run test:e2e` builds first.
 // Each worker gets its own ports (tests/e2e/fixtures.ts), so `--workers 2` works when a second spec file is added;
-// today flow.spec.ts is the only one that runs without CHANCERY_E2E_REAL, so one worker is the whole run.
+// today flow.spec.ts is the only one on the fixtures that runs without CHANCERY_E2E_REAL (firstrun.spec.ts launches
+// a copy of its own, with neither app's sessions and no database), so one worker is the whole run.
 const CI = Boolean(process.env.CI);
 export default defineConfig({
   testDir: "tests/e2e",

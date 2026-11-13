@@ -59,6 +59,13 @@ bin/chancery sessions --json
 - 写字之前要认准是新会话的输入框：按下侧栏按钮后的一瞬间，树里还是原来那条会话的输入框，只有新会话的输入框旁边有「Environment: …」控件，等到它出现才写。等不到就不发。
 - 没有做的：新会话输入框里如果留着你在那一家应用里没发出去的草稿，会被第一句话覆盖。真的 Claude 桌面端和 Codex 应用上这条路还没有从这个表单点过一次（守护进程的 desktop 模式走的是同两条 `axctl` 命令），端到端测试里用的是替身。
 
+第一次打开：
+
+- 窗口不等数据库。会话是从两家自己的文件里读的，所以主进程先把窗口和会话的接口立起来，数据库、守护进程和 MCP 在后面起（`main/index.ts` 的 `boot`）。要数据库的接口（项目注册、工单、守护进程）各自等它；它起不来时这些接口带着原因失败，会话页、设置页、浮窗照常。退出时如果数据库还在起，先等它起完再停，不留下 Postgres 进程。
+- 会话页顶上有一张说明（`renderer/Welcome.tsx`），点「知道了」之前一直在（设置里的 `welcomed`）：两家各读到多少会话，或者没找到（总览的 `sources` 说那一家的会话数据在不在这台机器上，不在不算出错）；回复和新建会话要的辅助功能权限有没有，没有就带「去授权」，授权后这一行自己变；会话提醒的开关。上面没有哪一项是必须先做的，下面的列表已经能用。
+- 两家都没装时，列表的位置说明原因。有会话但都在时间范围之外时，给一个「看最近 14 天」。
+- 设置页先是外观、会话（提醒、浮窗、登录时启动）、权限（辅助功能）；工单流水线的设置（Claude / Codex worker、书记、守护进程、数据库、MCP）折在「工单流水线」一行后面，展开与否记在本机。侧栏底部的守护进程状态只在注册过项目之后出现。
+
 工单页已从导航里拿掉，路由 `#/tickets` 还能进（端到端测试用 `CHANCERY_ROUTE=/tickets` 从它启动）。
 
 ## 跑起来
@@ -82,7 +89,7 @@ npm run dist       # 打成 dist/mac-arm64/Chancery.app（electron-builder，Dev
 - GitHub Actions（`.github/workflows/e2e.yml`，macOS runner）：假 CLI 那层每次 push 都跑；真实层需要仓库 secret `DEEPSEEK_API_KEY`，用 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` 把 `claude` CLI 接到 DeepSeek 上跑。
 - `CHANCERY_E2E_KEEP=1` 保留临时目录，`CHANCERY_E2E_ROOT` 换临时目录的位置。
 
-第一次启动会在 `~/Library/Application Support/chancery-claude/pgdata` 初始化一个内置 Postgres（embedded-postgres，只监听 127.0.0.1:54329），跑迁移。设置里可以改成外部 Postgres。日志在 `~/Library/Logs/chancery-claude/`。
+第一次启动会在后台（窗口不等它）往 `~/Library/Application Support/chancery-claude/pgdata` 初始化一个内置 Postgres（embedded-postgres，只监听 127.0.0.1:54329），跑迁移。设置里可以改成外部 Postgres。日志在 `~/Library/Logs/chancery-claude/`。
 
 ## 布局
 

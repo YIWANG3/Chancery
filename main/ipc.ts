@@ -5,9 +5,19 @@ import { run } from "../core/util/run.js";
 import { openSession } from "./openSession.js";
 import type { FloatPlace, FloatStyle, Settings } from "./settings.js";
 
-export interface IpcDeps {
+/** The ticket pipeline's side of the app: what stands on the database. */
+export interface Backend {
   repo: Repo;
   daemon: Daemon;
+}
+
+export interface IpcDeps {
+  /**
+   * The database's side, once it is up. It comes up after the window does, and may not come up at all (a port taken,
+   * a cluster that will not start): the channels that need it wait for it and fail with its reason, and every other
+   * channel (sessions, settings, the floating window) answers without it.
+   */
+  backend: () => Promise<Backend>;
   settings: () => Settings;
   saveSettings: (s: Settings) => void;
   /** The language the app speaks right now: the setting, or the system's when the setting says so. */
@@ -30,11 +40,12 @@ export interface IpcDeps {
 
 /** One channel per verb. The renderer calls window.chancery.invoke(channel, payload). */
 export function registerIpc(deps: IpcDeps): void {
-  const { repo, daemon } = deps;
+  const repoOf = async () => (await deps.backend()).repo;
+  const daemonOf = async () => (await deps.backend()).daemon;
   const h = <T, R>(channel: string, fn: (payload: T, win: BrowserWindow | null) => Promise<R> | R) =>
     ipcMain.handle(channel, (ev, payload: T) => fn(payload, BrowserWindow.fromWebContents(ev.sender)));
 
-  h("projects:list", () => repo.listProjects());
+  h("projects:list", async () => (await repoOf()).listProjects());
   h<{ dir?: string }, unknown>("projects:register", async ({ dir }, win) => {
     let target = dir;
     if (!target) {
@@ -42,14 +53,15 @@ export function registerIpc(deps: IpcDeps): void {
       if (r.canceled || !r.filePaths[0]) return null;
       target = r.filePaths[0];
     }
-    return repo.registerProject(target, deps.worktreeRoot());
+    return (await repoOf()).registerProject(target, deps.worktreeRoot());
   });
-  h<{ id: string; patch: Record<string, unknown> }, unknown>("projects:update", ({ id, patch }) => repo.updateProject(id, patch));
+  h<{ id: string; patch: Record<string, unknown> }, unknown>("projects:update", async ({ id, patch }) => (await repoOf()).updateProject(id, patch));
   h("projects:discover", async () => {
-    const registered = (await repo.listProjects()).map((p) => p.dir);
+    const registered = (await (await repoOf()).listProjects()).map((p) => p.dir);
     return discoverProjects({ exclude: registered });
   });
   h<{ dirs: string[] }, unknown>("projects:registerMany", async ({ dirs }) => {
+    const repo = await repoOf();
     const results: Array<{ dir: string; ok: boolean; error?: string }> = [];
     for (const dir of dirs) {
       try {
@@ -65,6 +77,7 @@ export function registerIpc(deps: IpcDeps): void {
   // Each ticket carries where its latest worker's conversation can be reopened: Claude Desktop when its index knows
   // the session (the deep link wants that local_<id>, not the CLI id), else a terminal with the CLI's resume.
   h<{ projectId?: string; status?: TicketStatus[] } | undefined, unknown>("tickets:list", async (f) => {
+    const repo = await repoOf();
     const [tickets, latest, index] = await Promise.all([repo.listTickets(f ?? {}), repo.latestAssignments(), desktopSessionsByCli().catch(() => new Map())]);
     const byTicket = new Map(latest.map((a) => [a.ticket_id, a]));
     return tickets.map((t) => {
@@ -73,20 +86,23 @@ export function registerIpc(deps: IpcDeps): void {
     });
   });
   h<{ id: string }, unknown>("tickets:get", async ({ id }) => {
+    const repo = await repoOf();
     const ticket = await repo.getTicket(id);
     if (!ticket) return null;
     const [events, raw, index] = await Promise.all([repo.listEvents(id), repo.assignmentsFor(id), desktopSessionsByCli().catch(() => new Map())]);
     const assignments = raw.map((a) => ({ ...a, session_open: sessionOpenFor(a, index) }));
     return { ticket, events, assignments };
   });
-  h<Parameters<Repo["createTicket"]>[0], unknown>("tickets:create", (input) => repo.createTicket(input));
-  h<{ id: string; patch: Record<string, unknown> }, unknown>("tickets:update", ({ id, patch }) => repo.updateTicket(id, patch));
+  h<Parameters<Repo["createTicket"]>[0], unknown>("tickets:create", async (input) => (await repoOf()).createTicket(input));
+  h<{ id: string; patch: Record<string, unknown> }, unknown>("tickets:update", async ({ id, patch }) => (await repoOf()).updateTicket(id, patch));
   h<{ id: string; status: TicketStatus; note?: string }, unknown>("tickets:setStatus", async ({ id, status, note }) => {
+    const { repo, daemon } = await deps.backend();
     const ticket = await repo.setStatus(id, status, "human", note);
     if (status === "ready") void daemon.tick();
     return ticket;
   });
   h<{ id: string; text: string }, unknown>("tickets:answer", async ({ id, text }) => {
+    const { repo, daemon } = await deps.backend();
     await repo.addEvent({ ticketId: id, actor: "human", kind: "answer", payload: { text } });
     // Phase 0: the answer is recorded and the ticket goes back to ready for a fresh worker. Delivery into the
     // existing session (--resume) is Phase 1.
@@ -98,13 +114,14 @@ export function registerIpc(deps: IpcDeps): void {
   h<{ text: string }, unknown>("tickets:draft", async ({ text }) => {
     const s = deps.settings();
     const backend = s.clerkBackend === "auto" ? (s.deepseekApiKey ? "deepseek" : "claude") : s.clerkBackend;
-    const projects = await repo.listProjects();
+    const projects = await (await repoOf()).listProjects();
     const draft = await draftTicket(text, projects, { backend, deepseekApiKey: s.deepseekApiKey, deepseekModel: s.deepseekModel, claudeBin: s.claudeBin });
     return { ...draft, backend };
   });
-  h("daemon:status", () => daemon.status());
-  h("daemon:tick", () => daemon.tick());
-  h<{ paused: boolean }, unknown>("daemon:pause", ({ paused }) => {
+  h("daemon:status", async () => (await daemonOf()).status());
+  h("daemon:tick", async () => (await daemonOf()).tick());
+  h<{ paused: boolean }, unknown>("daemon:pause", async ({ paused }) => {
+    const daemon = await daemonOf();
     daemon.setPaused(paused);
     return daemon.status();
   });
@@ -112,12 +129,14 @@ export function registerIpc(deps: IpcDeps): void {
   // The overview comes from the session watch, which reads the two apps' own files on a timer whether or not a
   // window is open, and tells the windows when something changed.
   h("sessions:overview", () => deps.sessions());
-  h<{ prompt?: boolean } | undefined, unknown>("ax:status", async (p) => {
+  // `light` asks only whether the permission is there. The full answer also reads Claude Desktop's sidebar, which
+  // takes seconds and is no business of a page that only wants to say "granted" or "not yet".
+  h<{ prompt?: boolean; light?: boolean } | undefined, unknown>("ax:status", async (p) => {
     try {
       const { stdout } = await run(deps.axctlPath, ["trusted", ...(p?.prompt ? ["--prompt"] : [])], { timeoutMs: 10_000 });
       const { trusted, askedOf } = JSON.parse(stdout) as { trusted: boolean; askedOf?: string };
       let probe: unknown = null;
-      if (trusted) {
+      if (trusted && !p?.light) {
         const r = await run(deps.axctlPath, ["probe"], { timeoutMs: 20_000 }).catch((err) => ({ stdout: JSON.stringify({ ok: false, error: String(err) }) }));
         probe = JSON.parse(r.stdout);
       }

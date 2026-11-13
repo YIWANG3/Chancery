@@ -7,6 +7,7 @@ import { cn } from "../cn";
 import { useChanged } from "../hooks";
 import { useT } from "../i18n";
 import { NewSession } from "../NewSession";
+import { Welcome } from "../Welcome";
 import { APP_LABEL, BUCKET, ProjectTag, SessionItem, State, ago, bucketKey, useReply, windowOptions, type Bucket, type ProjectTagProps, type WindowDays } from "../sessionBits";
 import { Button, Empty, PAGE_ACTIONS, Segmented, Select } from "../ui";
 
@@ -49,6 +50,14 @@ export function Sessions() {
   // The button lives in the window's title row, which the app shell renders; it is there once this has mounted.
   const [titleRow, setTitleRow] = useState<HTMLElement | null>(null);
   useEffect(() => setTitleRow(document.getElementById(PAGE_ACTIONS)), []);
+  // The first-open note is there until it is put away; null while that is not known yet, so it never flashes.
+  const [welcome, setWelcome] = useState<{ alerts: boolean } | null>(null);
+  useEffect(() => {
+    void api.settings
+      .get()
+      .then((s) => setWelcome(s.welcomed ? null : { alerts: s.sessionAlerts }))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     if (!started) return;
     const timer = setTimeout(() => setStarted(null), 30_000);
@@ -183,6 +192,21 @@ export function Sessions() {
         </div>
       )}
 
+      {welcome && (
+        <Welcome
+          overview={overview}
+          alerts={welcome.alerts}
+          onAlerts={(on) => {
+            setWelcome({ alerts: on });
+            void api.settings.set({ sessionAlerts: on });
+          }}
+          onDismiss={() => {
+            setWelcome(null);
+            void api.settings.set({ welcomed: true });
+          }}
+        />
+      )}
+
       {(failed || overview.errors.length > 0) && (
         <div className="shrink-0 mx-8 mb-4 rounded-md bg-panel2 px-4 py-3 text-[13px] text-warn flex flex-col gap-1">
           {failed && <span>{t("sessions.refreshFailed", { error: failed })}</span>}
@@ -213,7 +237,16 @@ export function Sessions() {
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-auto px-8 pb-10">
-          {!rows.length && <Empty>{inScope.length ? t("sessions.noneMatch") : t("sessions.noneInWindow")}</Empty>}
+          {!rows.length && (
+            <Empty
+              action={
+                // Sessions there are, only older than the window shows: the way to them is one click.
+                !inScope.length && filter.days !== "14" && overview.sessions.some((s) => !filter.app || s.app === filter.app) ? <Button onClick={() => setFilter({ ...filter, days: "14" })}>{t("sessions.widen")}</Button> : undefined
+              }
+            >
+              {inScope.length ? t("sessions.noneMatch") : overview.sources.claude || overview.sources.codex ? t("sessions.noneInWindow") : t("sessions.noneAnywhere")}
+            </Empty>
+          )}
           <div role="list" className="flex flex-col gap-0.5 -mx-3">
             {rows.map((s) => (
               <SessionItem key={`${s.app}:${s.id}`} s={s} now={now} project={tagOf(s)} />

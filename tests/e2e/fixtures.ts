@@ -120,6 +120,8 @@ function makeEnv(workerIndex: number): TestEnv {
         // system notification and puts nothing on top of the windows of whoever runs it.
         // CHANCERY_NO_EXTERNAL_OPEN makes a jump only log where it would have gone.
         sessionAlerts: true,
+        // The first-open note is put away; the spec that is about it brings it back.
+        welcomed: true,
         deepseekApiKey: REAL ? (process.env.DEEPSEEK_API_KEY ?? "") : "",
       },
       null,
