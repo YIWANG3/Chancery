@@ -49,16 +49,19 @@ export interface SearchHit {
   /** `app:id`, as `sessionKey` gives it. */
   key: string;
   score: number;
-  /** Where each word of the query was found, best place first; at most one per word. */
+  /** Where the words of the query were found, best place first: at most one per word, and words found in the
+   *  same passage share one. */
   matches: SearchMatch[];
 }
 
 const WEIGHT: Record<MatchWhere, number> = { title: 8, detail: 4, prompt: 3, file: 2, reply: 1 };
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
+/** The stretch of a text a snippet shows around a match at `at`. */
+const snippetSpan = (text: string, at: number, length: number): [from: number, to: number] => [Math.max(0, at - 30), Math.min(text.length, at + length + 70)];
+
 function snippetAround(text: string, at: number, length: number): string {
-  const from = Math.max(0, at - 30);
-  const to = Math.min(text.length, at + length + 70);
+  const [from, to] = snippetSpan(text, at, length);
   return `${from > 0 ? "…" : ""}${oneLine(text.slice(from, to))}${to < text.length ? "…" : ""}`;
 }
 
@@ -86,6 +89,9 @@ export function searchSessions(query: string, rows: SessionRow[], digestOf: (key
     ];
     const lowered = places.map((p) => p.text.toLowerCase());
     const matches: SearchMatch[] = [];
+    // What has been shown of each place so far: a second word that falls inside a snippet already given is on
+    // screen there, and saying the same sentence again would only look like two finds.
+    const shown = new Map<number, Array<[from: number, to: number]>>();
     let score = 0;
     for (const word of words) {
       let found = false;
@@ -93,7 +99,12 @@ export function searchSessions(query: string, rows: SessionRow[], digestOf: (key
         const at = lowered[i]!.indexOf(word);
         if (at < 0) continue;
         const p = places[i]!;
-        matches.push({ where: p.where, turn: p.turn, snippet: p.where === "file" ? p.text : snippetAround(p.text, at, word.length) });
+        const spans = shown.get(i) ?? [];
+        const span: [number, number] = p.where === "file" ? [0, p.text.length] : snippetSpan(p.text, at, word.length);
+        if (!spans.some(([from, to]) => at >= from && at + word.length <= to)) {
+          matches.push({ where: p.where, turn: p.turn, snippet: p.where === "file" ? p.text : snippetAround(p.text, at, word.length) });
+          shown.set(i, [...spans, span]);
+        }
         score += WEIGHT[p.where];
         found = true;
         break; // places are in order of weight, so the first is the best

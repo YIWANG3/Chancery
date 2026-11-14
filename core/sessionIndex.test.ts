@@ -41,6 +41,22 @@ describe("searchSessions", () => {
     expect(search("顺便")[0]!.matches[0]).toMatchObject({ where: "prompt", turn: 2 });
   });
 
+  it("shows a passage once when several words are found in it, and again only for a word further along", () => {
+    // Both words are in the one short reply: one match, and still counted as two words found.
+    const both = search("sips libheif")[0]!;
+    expect(both.matches).toEqual([{ where: "reply", turn: 1, snippet: "sips、ImageIO、libheif 三种。" }]);
+    expect(both.score).toBe(2);
+    expect(search("液态 透明度")[0]).toMatchObject({ key: "claude:a", score: 16, matches: [{ where: "title", turn: null, snippet: "液态玻璃样式透明度" }] });
+    // Two words in one file name are that file once.
+    expect(search("renderer styles")[0]!.matches).toEqual([{ where: "file", turn: null, snippet: "/repo/renderer/styles.css" }]);
+    // A word too far along the same message to be in the first snippet gets a snippet of its own.
+    const long = [row("claude", "long", "长消息", 50)];
+    const far = searchSessions("开头 结尾", long, () => ({ turns: [{ at: 1, prompt: `开头${"。".repeat(300)}结尾`, reply: "" }], files: [], prs: [] }))[0]!;
+    expect(far.matches.map((m) => [m.where, m.turn])).toEqual([["prompt", 1], ["prompt", 1]]);
+    expect(far.matches[0]!.snippet).toContain("开头");
+    expect(far.matches[1]!.snippet).toContain("结尾");
+  });
+
   it("finds a session by its title alone when its conversation could not be read", () => {
     expect(searchSessions("heic", rows, () => null).map((h) => h.key)).toEqual(["codex:c"]);
     expect(search("   ")).toEqual([]);
