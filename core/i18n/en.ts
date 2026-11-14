@@ -24,6 +24,7 @@ export const en: Record<keyof typeof zh, Msg> = {
   "common.register": "Register",
   "common.default": "Default",
   "common.cannotRead": "Could not read: {what}",
+  "common.listSeparator": ", ",
   "common.claudeDesktop": "Claude Desktop",
   "common.codexApp": "the Codex app",
   "sep.list": ", ",
@@ -160,8 +161,15 @@ export const en: Record<keyof typeof zh, Msg> = {
   // Agents page
   "agents.active": "Active Claude sessions",
   "agents.none": "No active Claude sessions.",
-  "agents.codexActive": "Active Codex threads",
-  "agents.codexNone": "No active Codex threads.",
+  "agents.apps": "Agents on this Mac",
+  "agents.sessions": "{n} in the last 14 days",
+  "agents.last": "last {when}",
+  "agents.quiet": "Nothing running or waiting on you",
+  "agents.noSessions": "No sessions in the last 14 days",
+  "agents.missing": "Not found: {apps}",
+  "agents.showSessions": "Show {app}'s sessions",
+  "agents.otherActive": "Sessions running in the other apps",
+  "agents.otherNone": "Nothing is running in the other apps.",
 
   // Projects page
   "projects.count": { one: "{n} project", other: "{n} projects" },

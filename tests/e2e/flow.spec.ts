@@ -628,6 +628,17 @@ test("别家的会话也在列：Cursor 里等你批准的一步算等我，能�
   await which.selectOption({ label: "各家" });
   await expect(win.getByRole("listitem").filter({ hasText: "端到端线程" })).toBeVisible();
 
+  // The Agent page counts it under its app, and that row leads back to the app's sessions.
+  await win.getByRole("button", { name: "Agent", exact: true }).click();
+  const cursorApp = win.getByRole("region", { name: "这台机器上的 agent" }).getByRole("listitem").filter({ hasText: "Cursor" });
+  await expect(cursorApp).toContainText("等我 1");
+  await expect(win.getByRole("region", { name: "这台机器上的 agent" }).getByRole("listitem").filter({ hasText: "Codex" })).toBeVisible();
+  await cursorApp.getByRole("button").click();
+  await expect(which).toHaveValue("cursor");
+  await expect(row).toBeVisible();
+  await expect(win.getByRole("listitem").filter({ hasText: "端到端线程" })).toHaveCount(0);
+  await which.selectOption({ label: "各家" });
+
   // Its turn over and looked at, it is one more finished session.
   writeCursorComposer(env, "c0000000-0000-4000-8000-000000000001", { name: "给落地页加暗色模式", status: "completed" });
   await expect(row).not.toContainText("等我");

@@ -22,6 +22,7 @@ export const zh = {
   "common.register": "注册",
   "common.default": "默认",
   "common.cannotRead": "读不到：{what}",
+  "common.listSeparator": "、",
   "common.claudeDesktop": "Claude 桌面端",
   "common.codexApp": "Codex 应用",
   "sep.list": "、",
@@ -158,8 +159,15 @@ export const zh = {
   // Agent 页
   "agents.active": "Claude 活动会话",
   "agents.none": "没有活动的 Claude 会话。",
-  "agents.codexActive": "Codex 活动线程",
-  "agents.codexNone": "没有活动的 Codex 线程。",
+  "agents.apps": "这台机器上的 agent",
+  "agents.sessions": "近 14 天 {n} 条",
+  "agents.last": "最近 {when}",
+  "agents.quiet": "没有在跑或等你的",
+  "agents.noSessions": "近 14 天没有会话",
+  "agents.missing": "没找到：{apps}",
+  "agents.showSessions": "看 {app} 的会话",
+  "agents.otherActive": "其他各家在跑的会话",
+  "agents.otherNone": "别家现在没有在跑的会话。",
 
   // 项目页
   "projects.count": "{n} 个项目",
