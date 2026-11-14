@@ -64,7 +64,7 @@ bin/chancery sessions --json
 - 窗口不等数据库。会话是从两家自己的文件里读的，所以主进程先把窗口和会话的接口立起来，数据库、守护进程和 MCP 在后面起（`main/index.ts` 的 `boot`）。要数据库的接口（项目注册、工单、守护进程）各自等它；它起不来时这些接口带着原因失败，会话页、设置页、浮窗照常。退出时如果数据库还在起，先等它起完再停，不留下 Postgres 进程。
 - 会话页顶上有一张说明（`renderer/Welcome.tsx`），点「知道了」之前一直在（设置里的 `welcomed`）：两家各读到多少会话，或者没找到（总览的 `sources` 说那一家的会话数据在不在这台机器上，不在不算出错）；回复和新建会话要的辅助功能权限有没有，没有就带「去授权」，授权后这一行自己变；会话提醒的开关。上面没有哪一项是必须先做的，下面的列表已经能用。
 - 两家都没装时，列表的位置说明原因。有会话但都在时间范围之外时，给一个「看最近 14 天」。
-- 设置页先是外观、会话（提醒、浮窗、登录时启动）、权限（辅助功能）；工单流水线的设置（Claude / Codex worker、书记、守护进程、数据库、MCP）折在「工单流水线」一行后面，展开与否记在本机。侧栏底部的守护进程状态只在注册过项目之后出现。
+- 设置页先是外观、会话（提醒、浮窗、登录时启动）、权限（辅助功能）；工单流水线的设置（Claude / Codex worker、工单整理、守护进程、数据库、MCP）折在「工单流水线」一行后面，展开与否记在本机。侧栏底部的守护进程状态只在注册过项目之后出现。
 
 工单页已从导航里拿掉，路由 `#/tickets` 还能进（端到端测试用 `CHANCERY_ROUTE=/tickets` 从它启动）。
 
@@ -85,7 +85,7 @@ npm run dist       # 打成 dist/mac-arm64/Chancery.app（electron-builder，Dev
 
 - `npm test`：vitest 单测，纯函数和守护进程的 watchdog。
 - `npm run test:e2e`：Playwright 的 `_electron` 起一份独立的 app（`CHANCERY_USER_DATA` 指到临时目录：自己的 settings、内置 PG 54339、MCP 41720、日志），注册一个临时 git 仓库为项目，走完「新工单 → 置为可派 → worker 提问 → 回答 → 第二轮 worker 收到回答 → 待审 → 关掉」和「记一条」。`claude` / `codex` / `gh` 是 `tests/e2e/bin/` 里的假脚本：不花 token，几秒跑完，每次调用的参数和 prompt 记在临时目录里供断言。app 开着也能同时跑。会话总览读的是临时目录里一份假的 Claude 会话索引和 Codex 库（`CHANCERY_SESSIONS_HOME`），不碰本机真实会话；提醒只走浮窗，不弹系统通知；点跳转只记日志，不打开真应用；浮窗放在屏幕外，不会盖到你的窗口上；快速回复走假的 `axctl`。
-- `CHANCERY_E2E_REAL=1 npx playwright test tests/e2e/real.spec.ts`：同一套夹具换成真的 `claude -p`（本机走订阅登录）和书记（有 `DEEPSEEK_API_KEY` 就用 DeepSeek），派一张「README 加一行并提交」的工单，断言 worktree 里真的多了一个 commit 和那一行。会花 token，几分钟。
+- `CHANCERY_E2E_REAL=1 npx playwright test tests/e2e/real.spec.ts`：同一套夹具换成真的 `claude -p`（本机走订阅登录）和整理工单的模型（有 `DEEPSEEK_API_KEY` 就用 DeepSeek），派一张「README 加一行并提交」的工单，断言 worktree 里真的多了一个 commit 和那一行。会花 token，几分钟。
 - GitHub Actions（`.github/workflows/e2e.yml`，macOS runner）：假 CLI 那层每次 push 都跑；真实层需要仓库 secret `DEEPSEEK_API_KEY`，用 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` 把 `claude` CLI 接到 DeepSeek 上跑。
 - `CHANCERY_E2E_KEEP=1` 保留临时目录，`CHANCERY_E2E_ROOT` 换临时目录的位置。
 
@@ -137,7 +137,7 @@ Codex app 的 AX 两个坑，都在 axctl 里处理了：composer 对 AXValue �
 每 30 秒或库里有变动时醒一次，四步各自独立，一步失败不影响其余：
 
 1. **轮询**在跑的 assignment。执行器报心跳或进度才续租；5 分钟没动静当卡住，转等我。撞到额度报成 `failed(reason=quota)`，该后端退避 1 小时（`ledger`），工单回可派，没钉死后端的下一轮改派另一家。
-2. **书记 triage**（设置里可关）：收件里的工单交给书记判 kind、priority、area，以及去向：可派 / 要设计 / 是个问题就直接答了关掉。
+2. **自动分类**（设置里可关）：收件里的工单交给模型判 kind、priority、area，以及去向：可派 / 要设计 / 是个问题就直接答了关掉。
 3. **审计**（设置里可关）：worker 开了 PR 进待审后，在它的 worktree 里起一轮只读审计，最后一行 `AUDIT: PASS` 进待合并，`FAIL` 带着发现回可派再修一轮，三轮不过转等我。审计用 `platform.json` 的 `agents.audit`，没有就用 worker 那家。
 4. **派单**：`SKIP LOCKED` 领一张可派的，建 worktree（新建的跑一次 `platform.json` 的 `setup`），起 worker。
 
@@ -155,9 +155,9 @@ claude mcp add --scope user --transport http chancery http://127.0.0.1:41710/mcp
 codex mcp add chancery --url http://127.0.0.1:41710/mcp
 ```
 
-## 书记：自然语言 → 工单
+## 工单整理：自然语言 → 工单
 
-「记一条」窗口（⌘⇧Space）是一个自由文本框，点「整理」由书记（`core/clerk.ts`）整理成项目、标题、Markdown 正文（背景 / 要做什么 / 验收标准 / 范围外）、类型、优先级、要不要先设计，给你改一眼再存；「原样存」跳过书记。书记只是一次短的模型调用：设置里有 DeepSeek API key 就走 DeepSeek（`deepseek-chat`，可改），没有就退回 `claude -p`（约 12 秒）。`bin/chancery draft "<一段话>"` 能单独试。
+「记一条」窗口（⌘⇧Space）是一个自由文本框，点「整理」由模型（`core/clerk.ts`）整理成项目、标题、Markdown 正文（背景 / 要做什么 / 验收标准 / 范围外）、类型、优先级、要不要先设计，给你改一眼再存；「原样存」跳过这一步。整理只是一次短的模型调用：设置里有 DeepSeek API key 就走 DeepSeek（`deepseek-chat`，可改），没有就退回 `claude -p`（约 12 秒）。`bin/chancery draft "<一段话>"` 能单独试。
 
 ## 开发用的环境变量
 

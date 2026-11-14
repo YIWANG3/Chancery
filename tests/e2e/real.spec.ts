@@ -48,7 +48,7 @@ test("真 worker 在 worktree 里改了 README 并提交，工单进待审", asy
   await expect(drawer.getByText("最近汇报")).toBeVisible();
 });
 
-test("书记（真模型）把一句话整理成工单", async ({ win }) => {
+test("真模型把一句话整理成工单", async ({ win }) => {
   test.setTimeout(3 * 60_000);
   await win.evaluate(() => {
     location.hash = "/capture";

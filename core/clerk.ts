@@ -47,7 +47,7 @@ ${text.trim()}
 
 function parseJson(raw: string): Record<string, unknown> {
   const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error("书记没有返回 JSON");
+  if (!m) throw new Error("整理工单的模型没有返回 JSON");
   return JSON.parse(m[0]) as Record<string, unknown>;
 }
 

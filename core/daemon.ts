@@ -208,13 +208,13 @@ export function createDaemon(opts: DaemonOptions): Daemon {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log(`triage #${ticket.seq} failed: ${message}`);
-        await repo.addEvent({ ticketId: ticket.id, actor: "clerk", kind: "note", payload: { text: `书记没能分类：${message}` } });
+        await repo.addEvent({ ticketId: ticket.id, actor: "clerk", kind: "note", payload: { text: `没能自动分类：${message}` } });
         continue;
       }
       await repo.updateTicket(ticket.id, { kind: r.kind, priority: r.priority, area: r.area });
       if (r.status === "done" && r.answer) {
         await repo.addEvent({ ticketId: ticket.id, actor: "clerk", kind: "comment", payload: { text: r.answer } });
-        await repo.setStatus(ticket.id, "done", "clerk", `这是个问题，书记答了：${r.reason}`, { kind: r.kind, priority: r.priority });
+        await repo.setStatus(ticket.id, "done", "clerk", `这是个问题，已直接回答：${r.reason}`, { kind: r.kind, priority: r.priority });
       } else {
         await repo.setStatus(ticket.id, r.status === "needs-spec" ? "needs-spec" : "ready", "clerk", r.reason, { kind: r.kind, priority: r.priority, area: r.area });
       }

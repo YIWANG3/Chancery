@@ -101,7 +101,7 @@ test("记一条：原样存", async ({ win }) => {
   await expect(win.getByText("已记为 #2")).toBeVisible();
 });
 
-test("记一条：书记整理后保存", async ({ win, env }) => {
+test("记一条：整理后保存", async ({ win, env }) => {
   const box = win.getByLabel("随便写");
   await box.fill("换掉首页截图");
   await win.getByRole("button", { name: "整理" }).click();
@@ -119,7 +119,7 @@ test("记一条：书记整理后保存", async ({ win, env }) => {
   await expect(win.getByRole("button", { name: /README 的截图换成新界面/ })).toBeVisible();
 });
 
-test("自动分类收件：问题被书记直接答掉，设计类进要设计", async ({ win }) => {
+test("自动分类收件：问题被直接答掉，设计类进要设计", async ({ win }) => {
   // Earlier tests left tickets in inbox; close them so the clerk only sees the two filed here. Show every status,
   // since an answered question leaves the "未完成" filter the moment the clerk closes it.
   await win.evaluate(async () => {
@@ -184,11 +184,11 @@ test("设置页：会话用得到的在前面，工单流水线的设置折在�
   const pipeline = win.getByRole("button", { name: /^工单流水线/ });
   await expect(pipeline).toHaveAttribute("aria-expanded", "false");
   await expect(win.getByText(/内置的 Postgres/)).toHaveCount(0);
-  await expect(win.getByRole("heading", { name: "书记" })).toHaveCount(0);
+  await expect(win.getByRole("heading", { name: "工单整理" })).toHaveCount(0);
   await pipeline.click();
   await expect(win.getByText(/内置的 Postgres/)).toBeVisible();
   await expect(win.getByText(`127.0.0.1:${env.mcpPort}/mcp`).first()).toBeVisible();
-  await expect(win.getByRole("heading", { name: "书记" })).toBeVisible();
+  await expect(win.getByRole("heading", { name: "工单整理" })).toBeVisible();
   await pipeline.click();
   await expect(win.getByText(/内置的 Postgres/)).toHaveCount(0);
 });
