@@ -4,6 +4,7 @@ import type { Overview, SessionApp } from "@core/overview";
 import { api, type AxStatus } from "./api";
 import { cn } from "./cn";
 import { useT } from "./i18n";
+import { SESSION_APPS, isDrivable } from "@core/sessionApps";
 import { APP_LABEL } from "./sessionBits";
 import { Button, Switch } from "./ui";
 
@@ -49,7 +50,8 @@ export function Welcome({ overview, alerts, onAlerts, onDismiss }: { overview: O
         <p className="text-[13px] leading-5 text-muted max-w-[640px]">{t("welcome.body")}</p>
       </div>
       <ul className="flex flex-col">
-        {(["claude", "codex"] as const).map(source)}
+        {/* The two apps that can also be driven from here are always named; any other only where it was found. */}
+        {SESSION_APPS.filter((app) => isDrivable(app) || overview.sources[app]).map(source)}
         <Row
           ok={trusted === true}
           title={t("welcome.ax")}

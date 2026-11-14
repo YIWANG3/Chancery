@@ -1,6 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { Daemon, Repo, TicketStatus } from "../core/index.js";
-import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, listStartProjects, replyToSession, sessionOpenFor, startSession, t, type Lang, type Overview, type ReplyTarget, type SessionApp, type SessionOpen, type StartProjects, type StartTarget } from "../core/index.js";
+import { desktopSessionsByCli, discoverProjects, draftTicket, listClaudeAgents, listStartProjects, replyToSession, sessionOpenFor, startSession, t, type Lang, type Overview, type DrivableApp, type ReplyTarget, type SessionOpen, type StartProjects, type StartTarget } from "../core/index.js";
 import { run } from "../core/util/run.js";
 import { openSession } from "./openSession.js";
 import type { FloatPlace, FloatStyle, Settings } from "./settings.js";
@@ -182,7 +182,7 @@ export function registerIpc(deps: IpcDeps): void {
   // A new conversation, started by the app that will own it. The menu is the projects the session list already
   // shows, paired with what the app's sidebar calls them; the first message goes into the fresh composer. The app
   // takes a few seconds to write the session into its own files, so the list is read again twice.
-  h<{ app: SessionApp }, StartProjects>("session:startProjects", async ({ app }) => {
+  h<{ app: DrivableApp }, StartProjects>("session:startProjects", async ({ app }) => {
     const known = (await deps.sessions()).projects.flatMap((p) => (p.dir ? [{ key: p.key, name: p.name, dir: p.dir }] : []));
     return listStartProjects(app, known, { axctlPath: deps.axctlPath, lang: deps.lang() });
   });

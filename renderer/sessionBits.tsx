@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Reply } from "lucide-react";
 import type { SessionApp, SessionRow, SessionState } from "@core/overview";
 import type { MsgKey } from "@core/i18n";
+import { SESSION_APPS, SESSION_APP_INFO, isDrivable } from "@core/sessionApps";
 import { api } from "./api";
 import { cn } from "./cn";
 import { useT, type T } from "./i18n";
@@ -54,7 +55,7 @@ export const BUCKET: Record<SessionState, Bucket> = {
 };
 export const bucketKey = (bucket: Bucket): MsgKey => `bucket.${bucket}`;
 
-export const APP_LABEL: Record<SessionApp, string> = { claude: "Claude", codex: "Codex" };
+export const APP_LABEL = Object.fromEntries(SESSION_APPS.map((app) => [app, SESSION_APP_INFO[app].name])) as Record<SessionApp, string>;
 
 /** How far back a page looks. The overview itself reads 14 days; the pages narrow it. */
 export const WINDOWS = [
@@ -65,7 +66,14 @@ export const WINDOWS = [
 export type WindowDays = (typeof WINDOWS)[number]["value"];
 export const windowOptions = (t: T) => WINDOWS.map((w) => ({ value: w.value, label: t(w.key) }));
 
-export const openKey = (app: SessionApp): MsgKey => `session.openIn.${app}`;
+/** What the jump button on a session says it does: straight to the conversation where its app has a link for that,
+ *  otherwise to the conversation's folder in that app. */
+export const openTitle = (s: Pick<SessionRow, "app" | "open">, t: T): string => {
+  if (s.open?.kind === "folder") return t("session.openFolderIn", { app: APP_LABEL[s.app] });
+  if (s.open?.kind === "app") return t("session.openApp", { app: APP_LABEL[s.app] });
+  if (s.open?.kind === "terminal") return t(`session.openTerminal.${s.open.bin}`);
+  return t(s.app === "codex" ? "session.openIn.codex" : "session.openIn.claude");
+};
 
 export const ago = (at: number, now: number, t: T): string => {
   const m = Math.max(0, Math.round((now - at) / 60_000));
@@ -92,7 +100,7 @@ export function useReply(s: SessionRow, now: number) {
   const [replying, setReplying] = useState(false);
   const [sentAt, setSentAt] = useState(0);
   // A running session cannot take a reply: its app would queue the message instead of sending it.
-  const canReply = s.state !== "running";
+  const canReply = isDrivable(s.app) && s.state !== "running";
   return {
     open: replying && canReply,
     buttons: (
@@ -112,8 +120,8 @@ export function useReply(s: SessionRow, now: number) {
         {s.open && (
           <button
             type="button"
-            aria-label={t(openKey(s.app))}
-            title={t(openKey(s.app))}
+            aria-label={openTitle(s, t)}
+            title={openTitle(s, t)}
             onClick={() => s.open && void api.session.open(s.open)}
             className="no-drag size-6 inline-flex items-center justify-center rounded text-muted hover:text-text hover:bg-hover"
           >
@@ -149,11 +157,12 @@ export function ReplyBox({ s, onSent, onCancel, className, stacked }: { s: Sessi
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => box.current?.focus(), []);
   const send = async () => {
-    if (!text.trim() || busy) return;
+    const app = s.app;
+    if (!text.trim() || busy || !isDrivable(app)) return;
     setBusy(true);
     setError("");
     try {
-      await api.session.reply({ app: s.app, id: s.id, title: s.title }, text);
+      await api.session.reply({ app, id: s.id, title: s.title }, text);
       onSent();
     } catch (err) {
       setError(String(err).replace(/^.*Error: /, ""));

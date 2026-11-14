@@ -46,7 +46,7 @@ const log = () => readFileSync(join(userData, "logs", "chancery.log"), "utf8");
 
 test("第一次打开：窗口直接是会话页，说明读到了什么；两家都没装时说清楚，而不是空着", async () => {
   const note = win.getByRole("region", { name: "开始使用" });
-  await expect(note.getByRole("heading", { name: "两家的会话都在这里" })).toBeVisible();
+  await expect(note.getByRole("heading", { name: "各家的会话都在这里" })).toBeVisible();
   const row = (name: string) => note.getByRole("listitem").filter({ hasText: name });
   await expect(row("Claude")).toContainText("没找到");
   await expect(row("Codex")).toContainText("没找到");
@@ -74,7 +74,7 @@ test("数据库起不来：会话页、设置页照常，侧栏上没有守护�
 
   // The project page is every project the two apps have sessions in; with no database it is just empty.
   await win.getByRole("button", { name: "项目", exact: true }).click();
-  await expect(win.getByText("这段时间两家都没有会话。")).toBeVisible();
+  await expect(win.getByText("这段时间各家都没有会话。")).toBeVisible();
 });
 
 test("「知道了」之后说明不再出现，重开也一样", async () => {

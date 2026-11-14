@@ -4,7 +4,7 @@ import { api, type ClaudeAgent } from "../api";
 import { useChanged } from "../hooks";
 import { useT } from "../i18n";
 import { cn } from "../cn";
-import { openKey, State } from "../sessionBits";
+import { openTitle, State } from "../sessionBits";
 import { Empty, Pill, SectionLabel } from "../ui";
 
 /** The states in which a Codex thread still has a turn under way: Codex has no command that lists its live
@@ -74,7 +74,7 @@ export function Agents() {
               <State state={s.state} basis={s.basis} />
             </span>
             {s.open ? (
-              <button className="flex-1 min-w-0 truncate text-left hover:underline" title={t(openKey("codex"))} onClick={() => s.open && void api.session.open(s.open)}>
+              <button className="flex-1 min-w-0 truncate text-left hover:underline" title={openTitle(s, t)} onClick={() => s.open && void api.session.open(s.open)}>
                 {s.title || t("common.untitled")}
               </button>
             ) : (

@@ -41,7 +41,7 @@ export function installMock(): void {
     const af = "/Users/me/workspace/AfterFrame";
     const ch = "/Users/me/workspace/chancery-claude";
     const notes = "/Users/me/notes";
-    const s = (app: "claude" | "codex", id: string, projectKey: string, state: string, title: string, minutesAgo: number, detail = "", basis = "fixture") => ({
+    const s = (app: "claude" | "codex" | "cursor", id: string, projectKey: string, state: string, title: string, minutesAgo: number, detail = "", basis = "fixture") => ({
       app,
       id,
       title,
@@ -52,7 +52,7 @@ export function installMock(): void {
       cwd: projectKey,
       projectKey,
       turn: state === "running" ? "" : "fixture",
-      open: app === "claude" ? { kind: "desktop", desktopSessionId: id } : { kind: "codex-app", threadId: id },
+      open: app === "claude" ? { kind: "desktop", desktopSessionId: id } : app === "codex" ? { kind: "codex-app", threadId: id } : { kind: "folder", app, dir: projectKey },
       parent: null as string | null,
     });
     const sessions = [
@@ -64,6 +64,8 @@ export function installMock(): void {
       s("codex", "t3", notes, "unread", "AI 在 CNC 加工中心的应用", 300, "", "thread_turns.completed + unread"),
       s("claude", "local_4", af, "running", "灯箱里的星级和 Lightroom 不同步", 1, "", "claude agents: busy"),
       s("codex", "t4", ch, "running", "对照 LobeHub 的任务模型", 3, "", "thread_turns.inProgress"),
+      s("cursor", "c1", af, "needs-you", "给落地页加暗色模式", 6, "等你批一个权限", "composer: hasBlockingPendingActions"),
+      s("cursor", "c2", ch, "done", "整理 gitignore", 240, "", "composer.status: completed"),
       s("claude", "local_7", af, "delegated", "拉最新代码和发版准备", 15, "等 2 个子会话：多级文件夹、tag 重梳", "postTurnSummary.blocked + sub-sessions at work"),
       { ...s("claude", "local_8", af, "running", "多级文件夹", 2, "", "claude agents: busy"), parent: "claude:local_7" },
       s("codex", "t5", af, "interrupted", "批量重命名导出预设", 600, "", "thread_turns.interrupted"),
@@ -80,7 +82,7 @@ export function installMock(): void {
       for (const x of mine) counts[x.state] = (counts[x.state] ?? 0) + 1;
       return { key, name, dir: key, apps: [...new Set(mine.map((x) => x.app))], sessions: mine.length, counts, lastAt: Math.max(...mine.map((x) => x.at)) };
     };
-    return { projects: [group(af, "AfterFrame"), group(ch, "chancery-claude"), group(notes, "notes")], sessions, readAt: Date.now(), errors: [], sources: { claude: true, codex: true } };
+    return { projects: [group(af, "AfterFrame"), group(ch, "chancery-claude"), group(notes, "notes")], sessions, readAt: Date.now(), errors: [], sources: { claude: true, "claude-cli": false, codex: true, cursor: true, copilot: false, deepseek: false, gemini: false, opencode: false, qwen: false, antigravity: false, workbuddy: false } };
   };
   // The language is the one setting the mock keeps, so the settings page can switch it like the app does.
   const settings: { theme: string; language: LangPref } = { theme: "system", language: "system" };

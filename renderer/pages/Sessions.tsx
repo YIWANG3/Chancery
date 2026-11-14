@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Columns3, List, Plus } from "lucide-react";
 import type { Overview, SessionApp, SessionRow } from "@core/overview";
+import { SESSION_APPS, isDrivable, type DrivableApp } from "@core/sessionApps";
 import { api } from "../api";
 import { cn } from "../cn";
 import { useChanged } from "../hooks";
@@ -46,7 +47,7 @@ export function Sessions() {
   // The new-session form sits under the toolbar while it is open; after a start a line says where it went, until
   // the session has had time to show up in the list by itself.
   const [creating, setCreating] = useState(false);
-  const [started, setStarted] = useState<{ app: SessionApp; project: string } | null>(null);
+  const [started, setStarted] = useState<{ app: DrivableApp; project: string } | null>(null);
   // The button lives in the window's title row, which the app shell renders; it is there once this has mounted.
   const [titleRow, setTitleRow] = useState<HTMLElement | null>(null);
   useEffect(() => setTitleRow(document.getElementById(PAGE_ACTIONS)), []);
@@ -157,11 +158,8 @@ export function Sessions() {
           className="!w-auto"
           value={filter.app}
           onChange={(app) => setFilter({ ...filter, app })}
-          options={[
-            { value: "", label: t("sessions.bothApps") },
-            { value: "claude", label: "Claude" },
-            { value: "codex", label: "Codex" },
-          ]}
+          // The two apps that can be driven from here are always offered; any other only once it has something to show.
+          options={[{ value: "" as const, label: t("sessions.bothApps") }, ...SESSION_APPS.filter((a) => isDrivable(a) || overview.sources[a] || filter.app === a).map((a) => ({ value: a, label: APP_LABEL[a] }))]}
         />
         <Select
           size="sm"
@@ -177,7 +175,7 @@ export function Sessions() {
 
       {creating && (
         <NewSession
-          app={filter.app || undefined}
+          app={filter.app && isDrivable(filter.app) ? filter.app : undefined}
           like={project || undefined}
           onStarted={(s) => {
             setCreating(false);
@@ -244,7 +242,7 @@ export function Sessions() {
                 !inScope.length && filter.days !== "14" && overview.sessions.some((s) => !filter.app || s.app === filter.app) ? <Button onClick={() => setFilter({ ...filter, days: "14" })}>{t("sessions.widen")}</Button> : undefined
               }
             >
-              {inScope.length ? t("sessions.noneMatch") : overview.sources.claude || overview.sources.codex ? t("sessions.noneInWindow") : t("sessions.noneAnywhere")}
+              {inScope.length ? t("sessions.noneMatch") : Object.values(overview.sources).some(Boolean) ? t("sessions.noneInWindow") : t("sessions.noneAnywhere")}
             </Empty>
           )}
           <div role="list" className="flex flex-col gap-0.5 -mx-3">

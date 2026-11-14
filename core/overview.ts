@@ -1,5 +1,5 @@
-// The session overview: every Claude Desktop and Codex session on this machine, each with one state, grouped by
-// project. Read-only: it looks at the two apps' own local state and writes nothing.
+// The session overview: every session of every agent app on this machine that can be read, each with one state,
+// grouped by project. Read-only: it looks at the apps' own local state and writes nothing.
 //
 // Sources (none is a public format, so every read is defensive and a source that cannot be read lands in `errors`
 // instead of taking the overview down):
@@ -8,6 +8,7 @@
 //           `claude agents --json`                                                               live busy / waiting / idle
 //   Codex   ~/.codex/state_5.sqlite           threads, thread_read_receipts (seen), thread_spawn_edges (parent)
 //           ~/.codex/thread_history_1.sqlite  thread_turns (how the last turn ended), thread_items (activity)
+//   others  one module each under core/sources/, listed in `sourceList` below
 //
 // A state is decided in two steps, so that every source feeds the same small set of questions (`SessionFacts`) and
 // one table (`decide`) turns the answers into a state. The questions are the four things the two apps actually
@@ -25,8 +26,18 @@ import { listClaudeAgents, type ClaudeAgent } from "./claude/sessions.js";
 import { run } from "./util/run.js";
 import { sqliteJson, sqlQuote } from "./util/sqlite.js";
 import { t as say, type Lang } from "./i18n/index.js";
+import { SESSION_APP_INFO, type SessionApp } from "./sessionApps.js";
+import { antigravitySource } from "./sources/antigravity.js";
+import { claudeCliSource } from "./sources/claudeCli.js";
+import { copilotSource } from "./sources/copilot.js";
+import { cursorSource } from "./sources/cursor.js";
+import { deepseekSource } from "./sources/deepseek.js";
+import { geminiSource } from "./sources/gemini.js";
+import { opencodeSource } from "./sources/opencode.js";
+import { qwenSource } from "./sources/qwen.js";
+import { workbuddySource } from "./sources/workbuddy.js";
 
-export type SessionApp = "claude" | "codex";
+export type { SessionApp };
 
 export type SessionState =
   | "needs-you" // stopped on something only a person can settle
@@ -415,12 +426,36 @@ export async function projectKeyFor(cwd: string): Promise<string> {
 // ---------------------------------------------------------------------------------------------------------------
 // Readers.
 
-async function readClaude(home: string, claudeBin: string, since: number, now: number, claudeInFront: boolean, lang: Lang, errors: string[]): Promise<PreparedRow[]> {
+/** What a reader is given: where to look, how far back, and where to put a line about a source it could not read. */
+export interface ReadContext {
+  home: string;
+  /** Sessions with no activity since this are left out; ms since epoch. */
+  since: number;
+  now: number;
+  lang: Lang;
+  errors: string[];
+  /** The live Claude Code processes (`claude agents --json`), asked for once per read however many readers want it. */
+  claudeAgents: () => Promise<ClaudeAgent[]>;
+}
+
+/** One app's sessions, as a module under core/sources/ offers them. */
+export interface SessionSource {
+  app: SessionApp;
+  /** Whether the app's own record of its sessions is on this machine at all. */
+  present(home: string): Promise<boolean>;
+  read(ctx: ReadContext): Promise<PreparedRow[]>;
+}
+
+/** Every source beside the two this file reads itself. A function, not a constant: a source module may import from
+ *  this one, and then its own export is not there yet while this file is still being set up. */
+const sourceList = (): SessionSource[] => [claudeCliSource, cursorSource, copilotSource, deepseekSource, geminiSource, opencodeSource, qwenSource, antigravitySource, workbuddySource];
+
+async function readClaude(home: string, agents: () => Promise<ClaudeAgent[]>, since: number, now: number, claudeInFront: boolean, lang: Lang, errors: string[]): Promise<PreparedRow[]> {
   const root = desktopIndexRoot(home);
   if (!(await isDirectory(root))) return [];
   const live = new Map<string, ClaudeAgent>();
   try {
-    for (const a of await listClaudeAgents(claudeBin)) live.set(a.sessionId, a);
+    for (const a of await agents()) live.set(a.sessionId, a);
   } catch (err) {
     errors.push(say(lang, "overview.err.claudeAgents", { error: err instanceof Error ? err.message : String(err) }));
   }
@@ -588,18 +623,29 @@ export async function buildOverview(opts: OverviewOptions = {}): Promise<Overvie
   const lang = opts.lang ?? "zh";
   const since = now - (opts.days ?? 14) * 86_400_000;
   const errors: string[] = [];
-  const [claude, codex] = await Promise.all([
-    readClaude(home, opts.claudeBin ?? "claude", since, now, opts.claudeInFront ?? false, lang, errors).catch((err) => {
+  let agents: Promise<ClaudeAgent[]> | null = null;
+  const claudeAgents = () => (agents ??= listClaudeAgents(opts.claudeBin ?? "claude"));
+  const ctx: ReadContext = { home, since, now, lang, errors, claudeAgents };
+  const [claude, codex, ...others] = await Promise.all([
+    readClaude(home, claudeAgents, since, now, opts.claudeInFront ?? false, lang, errors).catch((err) => {
       errors.push(say(lang, "overview.err.claudeIndex", { error: err instanceof Error ? err.message : String(err) }));
       return [] as PreparedRow[];
     }),
     readCodex(home, since, opts.includeExec ?? false, now, lang, errors),
+    // A source that throws takes only itself out of the overview.
+    ...sourceList().map((s) =>
+      s.read(ctx).catch((err: unknown) => {
+        errors.push(say(lang, "overview.err.source", { app: SESSION_APP_INFO[s.app].name, error: err instanceof Error ? err.message : String(err) }));
+        return [] as PreparedRow[];
+      }),
+    ),
   ]);
   // Families are resolved over both apps' rows before anything is left out, so a parent whose child is in a
   // directory that no longer exists still knows about it.
-  const decided = decideAll([...claude, ...codex], lang);
+  const decided = decideAll([...claude, ...codex, ...others.flat()], lang);
   const placed = await Promise.all(decided.map(async (s): Promise<SessionRow> => ({ ...s, projectKey: await projectKeyFor(s.cwd) })));
   const rows = opts.includeGone ? placed : placed.filter((s) => s.projectKey !== OTHER_PROJECT_KEY);
-  const sources = { claude: await isDirectory(desktopIndexRoot(home)), codex: Boolean(await stat(join(home, ".codex", "state_5.sqlite")).catch(() => null)) };
+  const sources = { claude: await isDirectory(desktopIndexRoot(home)), codex: Boolean(await stat(join(home, ".codex", "state_5.sqlite")).catch(() => null)) } as Record<SessionApp, boolean>;
+  for (const s of sourceList()) sources[s.app] = await s.present(home).catch(() => false);
   return { ...groupByProject(rows, lang), readAt: now, errors, sources };
 }

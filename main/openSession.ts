@@ -1,7 +1,7 @@
 // Takes the person to a conversation in the app it lives in. Used by the session list, by a clicked notification and
 // by the menu bar item.
 import { shell } from "electron";
-import type { SessionOpen } from "../core/index.js";
+import { SESSION_APP_INFO, type SessionOpen } from "../core/index.js";
 import { run } from "../core/util/run.js";
 
 /** Single-quotes a string for sh. */
@@ -40,9 +40,25 @@ export async function openSession(open: SessionOpen, bins: { claudeBin: string; 
     if (!UUID.test(open.threadId)) throw new Error("bad thread id");
     return external(`codex://threads/${open.threadId}`);
   }
-  if (!UUID.test(open.sessionId)) throw new Error("bad session id");
+  if (open.kind === "folder") {
+    // The app has no link to one conversation, so the folder is opened in it; the conversation is in its sidebar.
+    const { bundleId, name } = SESSION_APP_INFO[open.app];
+    if (!bundleId || !open.dir.startsWith("/")) throw new Error("nowhere to open this session");
+    log(`open folder in ${name}: ${open.dir}`);
+    if (!process.env.CHANCERY_NO_EXTERNAL_OPEN) await run("open", ["-b", bundleId, open.dir], { timeoutMs: 10_000 });
+    return;
+  }
+  if (open.kind === "app") {
+    const { bundleId, name } = SESSION_APP_INFO[open.app];
+    if (!bundleId) throw new Error("nowhere to open this session");
+    log(`open app ${name}`);
+    if (!process.env.CHANCERY_NO_EXTERNAL_OPEN) await run("open", ["-b", bundleId], { timeoutMs: 10_000 });
+    return;
+  }
+  // OpenCode's ids are its own (`ses_…`); every other CLI's is a UUID. Either way the id ends up on a command line.
+  if (!(open.bin === "opencode" ? /^ses_[A-Za-z0-9]{8,64}$/ : UUID).test(open.sessionId)) throw new Error("bad session id");
   if (process.env.CHANCERY_NO_EXTERNAL_OPEN) return log(`open terminal ${open.bin} ${open.sessionId}`);
-  const bin = open.bin === "codex" ? bins.codexBin : bins.claudeBin;
-  const resume = open.bin === "codex" ? ["resume", open.sessionId] : ["--resume", open.sessionId];
+  const bin = open.bin === "codex" ? bins.codexBin : open.bin === "claude" ? bins.claudeBin : open.bin;
+  const resume = open.bin === "codex" ? ["resume", open.sessionId] : open.bin === "opencode" ? ["--session", open.sessionId] : ["--resume", open.sessionId];
   await openTerminal([`cd ${shq(open.cwd)}`, [shq(bin), ...resume].join(" ")].join(" && "));
 }

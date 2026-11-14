@@ -2,7 +2,7 @@
 // is open: a notice that jumps to the session when clicked, and a fresh snapshot for the page, the menu bar item and
 // the dock badge.
 import { BrowserWindow } from "electron";
-import { buildOverview, createAlertTracker, t, type AlertKind, type Lang, type Overview, type SessionAlert, type SessionApp } from "../core/index.js";
+import { SESSION_APP_INFO, buildOverview, isInFront, createAlertTracker, t, type AlertKind, type Lang, type Overview, type SessionAlert } from "../core/index.js";
 import { run } from "../core/util/run.js";
 import type { Notice } from "./notify.js";
 
@@ -14,8 +14,6 @@ const FRESH_MS = POLL_MS * 1.5;
 /** More alerts than this from one read are folded into a single notification. */
 const MAX_SEPARATE = 3;
 
-const APP_NAME: Record<SessionApp, string> = { claude: "Claude", codex: "Codex" };
-const APP_BUNDLE: Record<SessionApp, string> = { claude: "com.anthropic.claudefordesktop", codex: "com.openai.codex" };
 
 /** The first word of a notice's title, by what happened. */
 const kindKey = (kind: AlertKind) => `alert.${kind}` as const;
@@ -76,7 +74,7 @@ export function startSessionWatch(deps: SessionWatchDeps): SessionWatch {
       return;
     }
     const front = await frontmostBundleId();
-    const due = alerts.filter((a) => APP_BUNDLE[a.session.app] !== front);
+    const due = alerts.filter((a) => !isInFront(a.session.app, front));
     if (due.length < alerts.length) deps.log(`sessions: ${alerts.length - due.length} not notified, their app is in front`);
     if (!due.length) return;
     const lang = deps.lang();
@@ -89,7 +87,7 @@ export function startSessionWatch(deps: SessionWatchDeps): SessionWatch {
       const s = a.session;
       deps.notify({
         title: `${t(lang, kindKey(a.kind))} · ${s.title || t(lang, "common.untitled")}`,
-        subtitle: [APP_NAME[s.app], a.project].filter(Boolean).join(" · "),
+        subtitle: [SESSION_APP_INFO[s.app].name, a.project].filter(Boolean).join(" · "),
         body: s.detail || (a.kind === "finished" ? t(lang, "alert.turnEnded") : ""),
         onClick: () => deps.onOpen(a),
       });
@@ -98,7 +96,7 @@ export function startSessionWatch(deps: SessionWatchDeps): SessionWatch {
 
   async function read(): Promise<Overview> {
     const front = await frontmostBundleId();
-    const overview = await buildOverview({ claudeBin: deps.claudeBin(), home: deps.home, claudeInFront: front === APP_BUNDLE.claude, lang: deps.lang() });
+    const overview = await buildOverview({ claudeBin: deps.claudeBin(), home: deps.home, claudeInFront: front === SESSION_APP_INFO.claude.bundleId, lang: deps.lang() });
     snapshot = overview;
     const alerts = tracker.feed(overview);
     const print = fingerprint(overview);

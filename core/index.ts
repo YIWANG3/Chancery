@@ -9,6 +9,7 @@ export { readProjectFromDir, parseGithubRepo } from "./project.js";
 export { discoverProjects, type DiscoveredProject } from "./discover.js";
 export { listClaudeAgents } from "./claude/sessions.js";
 export { buildOverview, type Overview, type OverviewOptions, type ProjectGroup, type SessionApp, type SessionRow, type SessionState } from "./overview.js";
+export { DRIVABLE_APPS, SESSION_APPS, SESSION_APP_INFO, isDrivable, isInFront, type DrivableApp, type SessionAppInfo } from "./sessionApps.js";
 export { createAlertTracker, heldUpSessions, type AlertKind, type AlertTracker, type SessionAlert } from "./sessionAlerts.js";
 export { replyToSession, type ReplyTarget } from "./sessionReply.js";
 export { listStartProjects, startSession, type StartProblem, type StartProject, type StartProjects, type StartTarget } from "./sessionStart.js";

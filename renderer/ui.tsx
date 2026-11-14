@@ -304,6 +304,9 @@ const SESSION_TARGET: Record<string, { label: (t: T) => string; action: MsgKey; 
   // Tool names are the same in every language.
   "terminal:claude": { label: () => "Claude CLI", action: "session.openTerminal.claude", Icon: SquareTerminal },
   "terminal:codex": { label: () => "Codex CLI", action: "session.openTerminal.codex", Icon: SquareTerminal },
+  "terminal:gemini": { label: () => "Gemini CLI", action: "session.openTerminal.gemini", Icon: SquareTerminal },
+  "terminal:opencode": { label: () => "OpenCode", action: "session.openTerminal.opencode", Icon: SquareTerminal },
+  "terminal:qwen": { label: () => "Qwen Code", action: "session.openTerminal.qwen", Icon: SquareTerminal },
 };
 
 /** Jumps to the worker's conversation. Always icon plus the target's name, so a card says which tool it opens.

@@ -6,12 +6,12 @@ import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionApp } from "./overview.js";
+import type { DrivableApp } from "./sessionApps.js";
 import { sqliteJson, sqlQuote } from "./util/sqlite.js";
 import { t, type Lang } from "./i18n/index.js";
 
 export interface ReplyTarget {
-  app: SessionApp;
+  app: DrivableApp;
   /** `local_…` for Claude Desktop, the thread id for Codex. */
   id: string;
   /** Codex shows no thread id anywhere in its window, so its title is what axctl checks before typing. */
@@ -40,7 +40,7 @@ export function axAskedOf(raw: string): string {
 }
 
 /** Turns what axctl said into something a person can act on. axctl's messages are stable English sentences. */
-export function explainReplyError(app: SessionApp, raw: string, lang: Lang = "zh"): string {
+export function explainReplyError(app: DrivableApp, raw: string, lang: Lang = "zh"): string {
   const name = t(lang, app === "claude" ? "common.claudeDesktop" : "common.codexApp");
   const rules: Array<[RegExp, Parameters<typeof t>[1]]> = [
     [/not trusted for Accessibility/, "reply.noAx"],

@@ -74,13 +74,14 @@ describe("buildOverview", () => {
 
   it("says which app's record of its sessions is on the machine at all, and finds nothing wrong where one is not", async () => {
     const here = await buildOverview({ home, claudeBin: fakeClaude([]), days: 3, now });
-    expect(here.sources).toEqual({ claude: true, codex: false });
+    expect(here.sources).toMatchObject({ claude: true, codex: false });
 
     // A machine with neither app: nothing to read, and that is not an error.
     const bare = join(root, "bare-home");
     mkdirSync(bare, { recursive: true });
     const none = await buildOverview({ home: bare, claudeBin: join(root, "no-such-claude"), days: 3, now });
-    expect(none.sources).toEqual({ claude: false, codex: false });
+    expect(Object.values(none.sources)).toEqual(Object.values(none.sources).map(() => false));
+    expect(none.sources).toMatchObject({ claude: false, codex: false });
     expect(none.sessions).toEqual([]);
     expect(none.errors).toEqual([]);
   });

@@ -11,13 +11,13 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { SessionApp } from "./overview.js";
+import type { DrivableApp } from "./sessionApps.js";
 import { axAskedOf, axctl, inTurn } from "./sessionReply.js";
 import { run } from "./util/run.js";
 import { t, type Lang } from "./i18n/index.js";
 
 export interface StartTarget {
-  app: SessionApp;
+  app: DrivableApp;
   /** The project as the app's sidebar names it. */
   project: string;
   /** Claude Desktop only: whether the session gets a worktree of its own. The Codex app has no such switch. */
@@ -30,7 +30,7 @@ export interface StartOptions {
   lang?: Lang;
 }
 
-const appName = (app: SessionApp, lang: Lang) => t(lang, app === "claude" ? "common.claudeDesktop" : "common.codexApp");
+const appName = (app: DrivableApp, lang: Lang) => t(lang, app === "claude" ? "common.claudeDesktop" : "common.codexApp");
 
 /** A project Chancery knows from the sessions it lists. */
 export interface KnownProject {
@@ -61,7 +61,7 @@ export interface StartProjects {
 }
 
 /** Why the sidebar could not be read, for the person. */
-export function listProblem(app: SessionApp, raw: string, lang: Lang = "zh"): StartProblem {
+export function listProblem(app: DrivableApp, raw: string, lang: Lang = "zh"): StartProblem {
   const name = appName(app, lang);
   if (/not trusted for Accessibility/.test(raw)) return { kind: "no-ax", text: t(lang, "start.listNoAx", { app: name, self: axAskedOf(raw) }) };
   if (/is not running|has no window/.test(raw)) return { kind: "not-running", text: t(lang, "start.listNotRunning", { app: name }) };
@@ -97,7 +97,7 @@ function repoNameOf(dir: string): Promise<string | null> {
  * then whatever else the sidebar offers. When the sidebar cannot be read, the known ones with the reason, so the
  * menu is never empty for want of a permission.
  */
-export async function listStartProjects(app: SessionApp, known: KnownProject[], opts: StartOptions): Promise<StartProjects> {
+export async function listStartProjects(app: DrivableApp, known: KnownProject[], opts: StartOptions): Promise<StartProjects> {
   const lang = opts.lang ?? "zh";
   const named = await Promise.all(known.map(async (p) => ({ ...p, likely: [await repoNameOf(p.dir), basename(p.dir)].filter((n): n is string => Boolean(n)) })));
   const guessed = (): StartProject[] => named.map((p) => ({ key: p.key, name: p.name, label: p.likely[0] ?? p.name }));

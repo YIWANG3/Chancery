@@ -59,6 +59,23 @@ bin/chancery sessions --json
 - 写字之前要认准是新会话的输入框：按下侧栏按钮后的一瞬间，树里还是原来那条会话的输入框，只有新会话的输入框旁边有「Environment: …」控件，等到它出现才写。等不到就不发。
 - 没有做的：新会话输入框里如果留着你在那一家应用里没发出去的草稿，会被第一句话覆盖。真的 Claude 桌面端和 Codex 应用上这条路还没有从这个表单点过一次（守护进程的 desktop 模式走的是同两条 `axctl` 命令），端到端测试里用的是替身。
 
+别家的会话：
+
+- 总览不止 Claude 和 Codex。每一家是 `core/sessionApps.ts` 里的一行（名字、bundle id）加 `core/sources/` 下的一个读取模块，登记在 `core/overview.ts` 的 `sourceList` 里；读取模块只交出事实（`SessionFacts`），状态仍由同一张判定表定。某一家读失败只少它自己，写进 `errors`；那一家的数据不在这台机器上不算出错（`sources`）。
+- 已接的七家，都是从对方应用自己的本地文件里读，格式不是公开的，各模块开头写着是照哪个版本读出来的：
+  - 终端里起的 Claude Code（`core/sources/claudeCli.ts`，界面上叫 Claude CLI）：`~/.claude/projects/<目录>/<会话 id>.jsonl` 里入口是 `cli` 的会话；桌面端起的已经从它的索引读了，程序调起的（`sdk-cli`）不列。活着的进程按 `claude agents --json` 判在跑、等你；结束的看文件结尾（一轮结束的标记、`end_turn`、接口报错、被打断）。只读文件的头和尾，文件没变不重读。标题是起过的名字，否则是第一句话。
+  - Cursor（`core/sources/cursor.ts`）：全局 `state.vscdb` 里的 `composerHeaders` 和 `composerData:<id>`。照 Cursor 自己侧栏的顺序判：有一步等批准是等我，`generating` 是运行中，有计划等确认是等我，然后按 `status` / `abortReason` 判完成、出错、中断；`hasUnreadMessages` 是完成未读。Cursor 没开时 `generating` 只能是被打断的一轮。
+  - VS Code 里的 Copilot（`core/sources/copilot.ts`）：每个工作区 `state.vscdb` 里的 `chat.ChatSessionStore.index`，`lastResponseState` 0 到 4 对应运行中、完成、取消、出错、等输入，`hasPendingEdits` 是待审。没用过的空聊天不列。读没读过没接（那块数据的形状没有真实数据可对）。
+  - Gemini CLI（`core/sources/gemini.ts`）：`~/.gemini/tmp/<项目>/chats/session-*.json`。磁盘上没有任何东西说一个会话在跑或在等，所以只分得出「以模型的回复结尾」和「以你的话结尾」，都列为已完成。
+  - OpenCode（`core/sources/opencode.ts`）：`~/.local/share/opencode/opencode.db` 的 `session` 和 `message` 两张表，按每个会话最新一条消息判：没写完的是运行中，`finish: "stop"` 是完成，带 `error` 的按名字分中断和出错。被杀掉的一轮在库里和正在写的一模一样，所以没有 opencode 进程时算中断，有进程但 30 分钟没动静也算中断（分不清是哪个会话的进程，不报「卡住」）。子 agent 的会话记着父会话（`parent_id`），父会话会显示等子会话。停在权限确认上的样子没见过，没读。为了对真实数据，在本机装了 OpenCode 1.19 跑了几条：运行中、跑完、被打断三种都对上了。
+  - Qwen Code（`core/sources/qwen.ts`）：`~/.qwen/projects/<目录>/chats/<id>.jsonl`，标题在旁边的 `<id>.title.json`。和它的上游 Gemini CLI 一样，磁盘上没有东西说在跑或在等，只分得出「以模型的话结尾」（完成）和其他。本机装了 Qwen Code 0.27，对着一个只回固定一句话的本机假模型接口跑了一条取到的格式。
+  - DeepSeek Harness（`core/sources/deepseek.ts`，桌面应用和 `dsh` 命令写的是同一批文件）：`~/.dsh/storages/session_projcache/sessions/<id>.json` 是宿主给每条会话存的检查点，标题和目录从这里取；状态从事件日志 `~/.dsh/sessions/<目录>/<id>/session.v4.jsonl.zstd` 的结尾读。日志是每次追加一个 zstd 帧，所以不用从头解：取文件最后 256 KB，找到第一个能一路解到结尾的帧头（`core/util/zstd.ts`）。`turn/start` 之后没有 `turn/end` 是一轮开着：有 `approval/asked` 没等到 `approval/decided` 是等你批权限，有 `ask_user_question` 的调用没等到结果是等你回答，否则运行中；`turn/end` 的 `reason.kind` 是 `completed`、`error`（带报错）、其他（`aborted`、`interrupted`）分别判完成、出错、中断。宿主死掉时这一轮在日志里一直开着，下次加载才补上结尾，所以没有宿主进程时算中断，有进程但日志 30 分钟没动也算中断；等你的两种不限时间。子会话的日志头里记着父会话（`parentSession`）。空会话和归档的不列。读没读过磁盘上没有。它是开源的，字段的意思是对着它的代码读的；本机有 16 条真实会话，完成、出错、被你停掉、一次问了又批了的权限请求都在里面，运行中和等批准是拿真实日志截到一半回放对的，等回答和子会话没有真实数据。
+- 另有两家只读得出「有这条会话、在哪、叫什么、什么时候动过」，状态基本读不出，接进来主要是为了能在一处看到：
+  - Antigravity（`core/sources/antigravity.ts`）：会话本身是不透明的文件，读的是编辑器 `state.vscdb` 里一段 base64 的 protobuf 索引（`antigravityUnifiedStateSync.trajectorySummaries`）和旧版自己的 `agyhub_summaries_proto.pb`，字段号是照字节认出来的，没有公开的 schema（`core/util/protobuf.ts` 是为它写的最小读取）。状态字段只见过 1（静止）；2 当作运行中是猜的，而且只在最近 30 分钟动过时才算。等你、出错、读没读过都读不出。它没有注册任何链接，也没法跳。写的时候本机已经卸载，对的是 2026-08 之前留下的数据。
+  - WorkBuddy（`core/sources/workbuddy.ts`）：`~/.workbuddy/workbuddy.db` 的 `sessions` 表。`status` 只在真实数据里见过 `completed`，其余取值从应用包里没找出来，所以只分得出已完成和完成未读（`unread` 列）；在跑、等你、出错都还认不出。不选项目起的会话各有一个按时间命名的目录，统一归到 `~/WorkBuddy` 下。跳转只能把应用叫到前面。
+- 这几家都只做列出、状态和跳转，不能从这里回复或新建（那要靠 `axctl` 认识对方的界面，只认 Claude 和 Codex，`core/sessionApps.ts` 的 `DRIVABLE_APPS`）。跳转：Cursor 和 VS Code 没有直达单条会话的链接，跳的是在那个应用里打开会话所在的文件夹；Gemini CLI 是开终端 `gemini --resume <id>`，OpenCode 是 `opencode --session <id>`，Qwen Code 是 `qwen --resume <id>`；DeepSeek Harness 的 `dsh://` 链接只认「把窗口叫出来」，跳转也就只做到这一步；终端里的 Claude Code 进程已经不在时是开终端 `claude --resume <id>`，进程还活着时它就在某个终端里，没有跳转。提醒：会话所在的终端（或带终端的编辑器）正在最前面时不提醒。
+- 探查过但没接的（2026-11-13，这台机器上）：Windsurf 和 Trae 的会话文件是加密的，读不了；Zed、Warp 本机已卸载，留下的数据是旧版本的格式；Copilot CLI 本机一条会话都没有；云端 agent 没有本机文件。
+
 第一次打开：
 
 - 窗口不等数据库。会话是从两家自己的文件里读的，所以主进程先把窗口和会话的接口立起来，数据库、守护进程和 MCP 在后面起（`main/index.ts` 的 `boot`）。要数据库的接口（项目注册、工单、守护进程）各自等它；它起不来时这些接口带着原因失败，会话页、设置页、浮窗照常。退出时如果数据库还在起，先等它起完再停，不留下 Postgres 进程。

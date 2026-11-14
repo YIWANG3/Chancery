@@ -72,6 +72,39 @@ export function writeCodexThread(env: TestEnv, id: string, t: { title: string; t
   }
 }
 
+/** Puts one agent session ("composer") into a stand-in for Cursor's global state database, the way Cursor keeps
+ *  it: a header row with the name, the folder and the flags its sidebar reads, and the composer's own record. */
+export function writeCursorComposer(env: TestEnv, id: string, c: { name: string; status: "generating" | "completed" | "aborted"; blocking?: boolean; unread?: boolean }): void {
+  const dir = join(env.sessionsHome, "Library", "Application Support", "Cursor", "User", "globalStorage");
+  mkdirSync(dir, { recursive: true });
+  const header = { name: c.name, isDraft: false, workspaceIdentifier: { id: "w", uri: { fsPath: env.projectDir } }, hasBlockingPendingActions: Boolean(c.blocking), hasPendingPlan: false, hasUnreadMessages: Boolean(c.unread) };
+  execFileSync(
+    "sqlite3",
+    [
+      join(dir, "state.vscdb"),
+      `CREATE TABLE IF NOT EXISTS composerHeaders (composerId TEXT PRIMARY KEY, workspaceId TEXT, createdAt INTEGER, lastUpdatedAt INTEGER, isArchived INTEGER, isSubagent INTEGER, value TEXT);
+       CREATE TABLE IF NOT EXISTS cursorDiskKV (key TEXT PRIMARY KEY, value TEXT);
+       INSERT OR REPLACE INTO composerHeaders VALUES (${sqlText(id)}, 'w', ${Date.now()}, ${Date.now()}, 0, 0, ${sqlText(JSON.stringify(header))});
+       INSERT OR REPLACE INTO cursorDiskKV VALUES (${sqlText(`composerData:${id}`)}, ${sqlText(JSON.stringify({ status: c.status }))});`,
+    ],
+    { stdio: "pipe" },
+  );
+}
+
+/** Writes the transcript of a Claude Code session started in a terminal, the way the CLI keeps it: one JSON line
+ *  per message, each saying where it came from (`entrypoint`) and where it ran. */
+export function writeClaudeCliTranscript(env: TestEnv, id: string, t: { ask: string; ended: boolean }): void {
+  const dir = join(env.sessionsHome, ".claude", "projects", "-demo-project");
+  mkdirSync(dir, { recursive: true });
+  const common = { entrypoint: "cli", cwd: env.projectDir, isSidechain: false, sessionId: id };
+  const lines: Array<Record<string, unknown>> = [
+    { type: "user", uuid: "u1", ...common, message: { role: "user", content: t.ask } },
+    { type: "assistant", uuid: "a1", ...common, message: { role: "assistant", stop_reason: t.ended ? "end_turn" : "tool_use", content: [{ type: "text", text: "…" }] } },
+    ...(t.ended ? [{ type: "system", subtype: "turn_duration", uuid: "t1", ...common }] : []),
+  ];
+  writeFileSync(join(dir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+}
+
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const fakeBin = join(repoRoot, "tests", "e2e", "bin");
 

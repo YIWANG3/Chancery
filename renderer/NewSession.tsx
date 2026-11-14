@@ -2,7 +2,7 @@
 // app itself starts the session (core/sessionStart.ts); nothing is created here.
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Bot, Folder, LoaderCircle, X } from "lucide-react";
-import type { SessionApp } from "@core/overview";
+import type { DrivableApp } from "@core/sessionApps";
 import type { StartProjects } from "@core/sessionStart";
 import { api } from "./api";
 import { useT } from "./i18n";
@@ -10,9 +10,9 @@ import { APP_LABEL } from "./sessionBits";
 import { Button, Menu } from "./ui";
 
 interface Remembered {
-  app: SessionApp;
+  app: DrivableApp;
   /** The key of the project last started in, per app: one app's sidebar may not have what the other's has. */
-  project: Partial<Record<SessionApp, string>>;
+  project: Partial<Record<DrivableApp, string>>;
   worktree: boolean;
 }
 
@@ -36,10 +36,10 @@ const RECHECK_MS = 3000;
  * is said under the form with the way out, and goes away by itself once it is put right. What was typed stays in
  * the box when the app refuses, with the reason under it.
  */
-export function NewSession({ app: preferred, like, onStarted, onClose }: { app?: SessionApp; /** The key of a project to preselect when it can be started in. */ like?: string; onStarted: (s: { app: SessionApp; project: string }) => void; onClose: () => void }) {
+export function NewSession({ app: preferred, like, onStarted, onClose }: { app?: DrivableApp; /** The key of a project to preselect when it can be started in. */ like?: string; onStarted: (s: { app: DrivableApp; project: string }) => void; onClose: () => void }) {
   const t = useT();
   const [remembered] = useState(load);
-  const [app, setApp] = useState<SessionApp>(preferred ?? remembered.app);
+  const [app, setApp] = useState<DrivableApp>(preferred ?? remembered.app);
   const [list, setList] = useState<StartProjects | null>(null); // null while it is being read
   const [attempt, setAttempt] = useState(0);
   const [picked, setPicked] = useState("");

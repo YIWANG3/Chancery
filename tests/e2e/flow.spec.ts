@@ -2,7 +2,7 @@
 // answers, the next worker gets the answer and finishes. No tokens, deterministic, runs in CI.
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { CODEX_THREAD, expect, REAL, test, writeClaudeSession, writeCodexThread } from "./fixtures";
+import { CODEX_THREAD, expect, REAL, test, writeClaudeCliTranscript, writeClaudeSession, writeCodexThread, writeCursorComposer } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
 test.skip(REAL, "fake-CLI specs; set CHANCERY_E2E_REAL=1 for real.spec.ts instead");
@@ -564,7 +564,7 @@ test("第一次打开的说明：说清读到了什么、回复要什么权限�
   await win.getByRole("button", { name: /^会话/ }).click();
 
   const note = win.getByRole("region", { name: "开始使用" });
-  await expect(note.getByRole("heading", { name: "两家的会话都在这里" })).toBeVisible();
+  await expect(note.getByRole("heading", { name: "各家的会话都在这里" })).toBeVisible();
   // Both apps' records are there (the stand-in home has them), each with how many sessions it holds.
   const row = (name: string) => note.getByRole("listitem").filter({ hasText: name });
   await expect(row("Claude")).toContainText(/最近 14 天 \d+ 个会话/);
@@ -597,4 +597,48 @@ test("第一次打开的说明：说清读到了什么、回复要什么权限�
   await win.getByRole("button", { name: /^会话/ }).click();
   await expect(win.getByRole("combobox", { name: "项目" })).toBeVisible();
   await expect(note).toHaveCount(0);
+});
+
+test("别家的会话也在列：Cursor 里等你批准的一步算等我，能筛出来、能跳到它的文件夹，但不能从这里回复", async ({ win, env }) => {
+  writeCursorComposer(env, "c0000000-0000-4000-8000-000000000001", { name: "给落地页加暗色模式", status: "generating", blocking: true });
+  await win.getByRole("button", { name: /^会话/ }).click();
+  const row = win.getByRole("listitem").filter({ hasText: "给落地页加暗色模式" });
+  await expect(row).toBeVisible();
+  // Cursor's own "blocking pending action" is a step held on the person: needs-you, with what it waits for.
+  await expect(row).toContainText("等我");
+  await expect(row).toContainText("等你批一个权限");
+  await expect(row).toContainText("Cursor");
+  await expect(row.getByRole("button", { name: "demo-project" })).toBeVisible();
+  // Only the two apps that can be driven through Accessibility take a reply; this one is listed and jumped to.
+  await expect(win.getByRole("listitem").filter({ hasText: "端到端会话" }).getByRole("button", { name: "回复这个会话" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "回复这个会话" })).toHaveCount(0);
+  // Cursor has no link to one conversation, so the jump opens the conversation's folder in Cursor.
+  await row.getByRole("button", { name: /^在 Cursor 里打开这个会话所在的文件夹/ }).click();
+  await expect.poll(() => readFileSync(join(env.userData, "logs", "chancery.log"), "utf8")).toContain(`open folder in Cursor: ${env.projectDir}`);
+  // Found on this machine, it is one of the apps the list can be narrowed to.
+  const which = win.getByRole("combobox", { name: "哪一家" });
+  await which.selectOption({ label: "Cursor" });
+  await expect(win.getByRole("listitem").filter({ hasText: "端到端线程" })).toHaveCount(0);
+  await expect(row).toBeVisible();
+  await which.selectOption({ label: "各家" });
+  await expect(win.getByRole("listitem").filter({ hasText: "端到端线程" })).toBeVisible();
+
+  // Its turn over and looked at, it is one more finished session.
+  writeCursorComposer(env, "c0000000-0000-4000-8000-000000000001", { name: "给落地页加暗色模式", status: "completed" });
+  await expect(row).not.toContainText("等我");
+});
+
+test("终端里起的 Claude Code 会话也在列：标题是第一句话，跑完的能在终端里续上，不能从这里回复", async ({ win, env }) => {
+  const id = "d0000000-0000-4000-8000-000000000001";
+  writeClaudeCliTranscript(env, id, { ask: "把上传的重试改成指数退避", ended: true });
+  await win.getByRole("button", { name: /^会话/ }).click();
+  const row = win.getByRole("listitem").filter({ hasText: "把上传的重试改成指数退避" });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("Claude CLI");
+  await expect(row).toContainText("已完成");
+  await expect(row.getByRole("button", { name: "demo-project" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "回复这个会话" })).toHaveCount(0);
+  // No process has it any more, so it is taken up again with the CLI's own resume, in its directory.
+  await row.getByRole("button", { name: "在终端里续聊：claude --resume" }).click();
+  await expect.poll(() => readFileSync(join(env.userData, "logs", "chancery.log"), "utf8")).toContain(`open terminal claude ${id}`);
 });

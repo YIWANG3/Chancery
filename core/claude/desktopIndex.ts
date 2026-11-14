@@ -3,6 +3,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { SessionApp } from "../sessionApps.js";
 
 export interface DesktopSession {
   sessionId: string; // local_…
@@ -85,7 +86,11 @@ export async function desktopSessionsByCli(home = homedir()): Promise<Map<string
 export type SessionOpen =
   | { kind: "desktop"; desktopSessionId: string }
   | { kind: "codex-app"; threadId: string }
-  | { kind: "terminal"; bin: "claude" | "codex"; sessionId: string; cwd: string };
+  | { kind: "terminal"; bin: "claude" | "codex" | "gemini" | "opencode" | "qwen"; sessionId: string; cwd: string }
+  // An app with no link to one conversation: the nearest there is to go is the folder the conversation is in.
+  | { kind: "folder"; app: SessionApp; dir: string }
+  // An app with no way in from outside at all: all there is to do is bring it up.
+  | { kind: "app"; app: SessionApp };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

@@ -2,7 +2,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, nativeT
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
-import { createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, heldUpSessions, migrate, resolveLang, t, triageTicket, type Daemon, type Db, type Lang, type SessionRow, type Triage } from "../core/index.js";
+import { SESSION_APP_INFO, createClaudeDesktopExecutor, createCodexExecutor, createDaemon, createDb, createRepo, heldUpSessions, migrate, resolveLang, t, triageTicket, type Daemon, type Db, type Lang, type SessionRow, type Triage } from "../core/index.js";
 import { broadcast, registerIpc, type Backend } from "./ipc.js";
 import { createFloatControl, type FloatControl, type NotchSpot, type Room } from "./floatWindow.js";
 import { loadGlass } from "./glass.js";
@@ -252,7 +252,7 @@ function refreshAttention() {
   tray.setTitle(n ? `Ch ${n}` : "Ch");
   const l = lang();
   const waiting: Electron.MenuItemConstructorOptions[] = heldUp.slice(0, TRAY_SESSIONS).map((s) => ({
-    label: `${clip(s.title || t(l, "common.untitled"), 36)} — ${s.app === "claude" ? "Claude" : "Codex"}`,
+    label: `${clip(s.title || t(l, "common.untitled"), 36)} — ${SESSION_APP_INFO[s.app].name}`,
     toolTip: s.detail || undefined,
     click: () => jumpTo(s),
   }));
