@@ -2,7 +2,7 @@
 
 Agent 开发平台的桌面 app：Postgres 存所有项目的工单、派发和流水；一个常驻守护进程取活、建 worktree、起 Claude / Codex / dsh 的 worker、读结果回写；界面看进度、批奏折、记一条。
 
-设计稿暂在 AfterFrame 仓库 `docs/agent-platform-design.md`，会迁过来。**2026-11-05 起是 v6：重心从工单派发改成跨厂商的会话总览**，见下一节；本文其余部分描述的工单流水线已搁置，代码还在。
+设计稿在 [`docs/agent-platform-design.md`](docs/agent-platform-design.md)（2026-11-13 从 AfterFrame 仓库迁来）。**2026-11-05 起是 v6：重心从工单派发改成跨厂商的会话总览**，见下一节；本文其余部分描述的工单流水线已搁置，代码还在。
 
 ## 会话总览（v6）
 

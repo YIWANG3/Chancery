@@ -2,7 +2,7 @@
 
 日期：2026-11-03。对照的文档：
 
-- 设计稿 v5.1：`~/Desktop/workspace/media-resource-management/docs/agent-platform-design.md`（含 11-04 的 Phase 0 实施记录）
+- 设计稿 v5.1：当时在 `~/Desktop/workspace/media-resource-management/docs/agent-platform-design.md`，2026-11-13 已迁到本仓库 [`docs/agent-platform-design.md`](agent-platform-design.md)（含 11-04 的 Phase 0 实施记录）
 - 参考：旧 Chancery 项目 `~/Desktop/workspace/Chancery/docs/`（design.md 0.3、implementation.md）
 - 参考：AX 探测记录 `~/Desktop/workspace/platform/mvp/ax/RESULTS.md`
 
@@ -133,7 +133,7 @@ Phase 0 的主链路（记一条 → 入库 → 守护进程领单 → 建 workt
 - 守护进程 `tick()` 里 `dispatchOne` 循环最多 5 次，但 `claimReady` 不传 projectId，多项目时按全局 priority 排，没有跨项目公平性（设计没要求，旧 Chancery 列为未做）。
 - 托盘是文字 "Ch"，没有图标资源；没有 electron-builder、没有 app 图标、没有签名。辅助功能授权绑的是 `electron` 开发二进制，打包后要重新授权一次。
 - `native/bin/axctl` 是构建产物进了仓库，换机器要 `npm run build:native`。
-- README 说设计稿「在 AfterFrame 仓库」，实际在 `media-resource-management/docs/`；设计稿说「平台独立成仓库后随之迁走」，还没迁。
+- README 说设计稿「在 AfterFrame 仓库」，实际在 `media-resource-management/docs/`；设计稿说「平台独立成仓库后随之迁走」，还没迁。→ 2026-11-13 已迁，README 已改。
 
 ## 7. 管家 MCP（设计 4.10）
 
